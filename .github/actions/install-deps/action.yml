@@ -1,0 +1,32 @@
+name: Install build dependencies
+description: Python, SCons, and the parts of the VST3 SDK the host compiles.
+
+inputs:
+  python_version:
+    default: "3.x"
+  # 4.10.1 or later: the first to find Visual Studio 2026, which windows-latest has had since
+  # October 2026 (image windows-2025-vs2026). With an older SCons, godot-cpp silently fell back to
+  # MinGW on Windows. Keep in step with the local .venv.
+  scons_version:
+    default: "4.11.1"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Python ${{ inputs.python_version }}
+      uses: actions/setup-python@v7
+      with:
+        python-version: ${{ inputs.python_version }}
+
+    - name: Install SCons ${{ inputs.scons_version }}
+      shell: bash
+      run: |
+        python -m pip install scons==${{ inputs.scons_version }}
+        scons --version
+
+    # The checkout fetches top-level submodules only. Of the VST3 SDK's own submodules the host
+    # needs three (see vst3_sdk_sources.txt); a recursive checkout would also pull VSTGUI and the
+    # docs, which are large and unused.
+    - name: Fetch the VST3 SDK parts in use
+      shell: bash
+      run: git -C thirdparty/vst3sdk submodule update --init --depth 1 base pluginterfaces public.sdk

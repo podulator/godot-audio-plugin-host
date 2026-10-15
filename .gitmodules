@@ -1,0 +1,13 @@
+[submodule "thirdparty/godot-cpp"]
+	path = thirdparty/godot-cpp
+	url = https://github.com/godotengine/godot-cpp
+	branch = 4.5
+	shallow = true
+[submodule "thirdparty/clap"]
+	path = thirdparty/clap
+	url = https://github.com/free-audio/clap
+	shallow = true
+[submodule "thirdparty/vst3sdk"]
+	path = thirdparty/vst3sdk
+	url = https://github.com/steinbergmedia/vst3sdk
+	shallow = true

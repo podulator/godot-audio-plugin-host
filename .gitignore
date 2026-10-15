@@ -1,0 +1,14 @@
+.venv/
+build/
+tests/core/build/
+demo/.godot/
+demo/addons/*/bin/*.so
+demo/addons/*/bin/*.dll
+demo/addons/*/bin/*.framework/
+*.os
+*.o
+.sconsign.dblite
+__pycache__/
+tests/clap/build/
+tests/vst3/build/
+demo/override.cfg

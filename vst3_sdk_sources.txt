@@ -1,0 +1,21 @@
+# VST3 SDK files compiled into the VST3 extension, relative to thirdparty/vst3sdk.
+# Read by SConstruct and tests/vst3/run.sh. Lines starting with # are ignored.
+# module_linux.cpp is swapped for module_win32.cpp / module_mac.mm by SConstruct per platform.
+# The SDK's thread checkers are replaced by src/vst3/vst3_threadchecker.cpp (none for macOS).
+public.sdk/source/vst/hosting/module.cpp
+public.sdk/source/vst/hosting/module_linux.cpp
+public.sdk/source/vst/hosting/hostclasses.cpp
+public.sdk/source/vst/hosting/pluginterfacesupport.cpp
+public.sdk/source/vst/hosting/parameterchanges.cpp
+public.sdk/source/vst/hosting/connectionproxy.cpp
+public.sdk/source/vst/utility/stringconvert.cpp
+public.sdk/source/common/commonstringconvert.cpp
+public.sdk/source/common/memorystream.cpp
+pluginterfaces/base/coreiids.cpp
+pluginterfaces/base/funknown.cpp
+# Defines the 16-byte interface ids (IComponent::iid and the rest). Every VST3 host needs it once.
+public.sdk/source/vst/vstinitiids.cpp
+# Reads a bundle's moduleinfo.json, so a scan can skip loading the binary.
+public.sdk/source/vst/moduleinfo/moduleinfoparser.cpp
+# Interface ids for the GUI side: IPlugView, IPlugFrame, and Linux's IRunLoop and its handlers.
+public.sdk/source/common/commoniids.cpp

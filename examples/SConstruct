@@ -1,0 +1,172 @@
+#!/usr/bin/env python
+# Builds the two example plugins as installable bundles, for the platform SCons runs on:
+#
+#   examples/build/clap_gain.clap    Linux/Windows: one shared library; macOS: a bundle folder
+#   examples/build/vst3_gain.vst3/   a bundle folder on every platform
+#
+#   scons -C examples                 (or: ../.venv/bin/scons from this folder)
+#
+# Independent of the extensions' build: no godot-cpp, just a C/C++ compiler, the CLAP headers and
+# the parts of the VST 3 SDK already in ../thirdparty.
+
+import os
+import platform as py_platform
+
+env = Environment(ENV=os.environ)
+# SCONS_CACHE (set in CI): keep compiled objects there and reuse them in later runs, as the
+# extensions' build does (godot-cpp's SConstruct).
+if os.environ.get("SCONS_CACHE"):
+    CacheDir(os.environ["SCONS_CACHE"])
+plat = {"Linux": "linux", "Windows": "windows", "Darwin": "macos"}[py_platform.system()]
+msvc = env.get("CC") == "cl"
+out = Dir("build").abspath
+sdk = "#../thirdparty/vst3sdk"
+
+if msvc:
+    # /utf-8: the VST 3 SDK's sources contain non-ASCII characters, which MSVC otherwise reads in
+    # the system code page and can reject.
+    env.Append(CCFLAGS=["/O2", "/W3", "/utf-8"], CXXFLAGS=["/std:c++17", "/EHsc"], CPPDEFINES=["_CRT_SECURE_NO_WARNINGS"])
+else:
+    env.Append(CCFLAGS=["-O2", "-fPIC", "-Wall", "-fvisibility=hidden"], CFLAGS=["-std=c11"], CXXFLAGS=["-std=c++17", "-Wno-deprecated-declarations"])
+if plat == "macos":
+    env.Append(CCFLAGS=["-arch", "arm64", "-arch", "x86_64"], LINKFLAGS=["-arch", "arm64", "-arch", "x86_64"])
+
+# Plugins are loaded with dlopen() and never linked against, which on macOS means a loadable
+# bundle (-bundle), not a dynamic library (-dynamiclib, what SharedLibrary makes). SCons's
+# LoadableModule builder is exactly that there, and the same as SharedLibrary everywhere else.
+# The file's own extension (.clap, .so, .vst3, or none inside a macOS bundle) is handed to SCons as
+# the library suffix: on Windows SCons refuses a DLL target whose name doesn't end in it.
+# no_import_lib: nothing ever links against a plugin, so MSVC's .lib for one is never needed.
+def plugin_binary(builder_env, target, sources):
+    build = builder_env.LoadableModule if plat == "macos" else builder_env.SharedLibrary
+    stem, ext = os.path.splitext(target)
+    return build(stem, sources, SHLIBPREFIX="", SHLIBSUFFIX=ext, LDMODULEPREFIX="", LDMODULESUFFIX=ext, no_import_lib=1)
+
+# Where each format puts its binary, per platform (the CLAP and VST 3 specifications).
+arch = "x86_64" if py_platform.machine().lower() in ("x86_64", "amd64") else py_platform.machine().lower()
+def binary(bundle, name, ext):
+    if plat == "linux":
+        return "{}/Contents/{}-linux/{}.so".format(bundle, arch, name) if ext == "vst3" else bundle
+    if plat == "windows":
+        return "{}/Contents/{}-win/{}.vst3".format(bundle, arch, name) if ext == "vst3" else bundle
+    return "{}/Contents/MacOS/{}".format(bundle, name)  # macOS: both formats are bundles
+
+# --- CLAP: plain C, the CLAP headers only ----------------------------------------------------
+clap_env = env.Clone()
+clap_env.Append(CPPPATH=["#../thirdparty/clap/include"])
+clap_target = binary(out + "/clap_gain.clap", "clap_gain", "clap")
+clap_lib = plugin_binary(clap_env, clap_target, ["clap-gain/clap_gain.c"])
+
+# --- VST 3: the plugin, the SDK's SingleComponentEffect helpers, and the SDK's base library ----
+vst_env = env.Clone()
+vst_env.Append(CPPPATH=[sdk], CPPDEFINES=[("RELEASE", 1)])
+module_entry = {
+    "linux": "public.sdk/source/main/linuxmain.cpp",  # ModuleEntry/ModuleExit
+    "windows": "public.sdk/source/main/dllmain.cpp",  # InitDll/ExitDll
+    "macos": "public.sdk/source/main/macmain.cpp",  # bundleEntry/bundleExit
+}[plat]
+sdk_sources = [
+    "public.sdk/source/vst/vstsinglecomponenteffect.cpp",
+    "public.sdk/source/vst/vstbus.cpp",
+    "public.sdk/source/vst/vstparameters.cpp",
+    "public.sdk/source/vst/vstcomponentbase.cpp",
+    "public.sdk/source/vst/vstinitiids.cpp",
+    "public.sdk/source/main/pluginfactory.cpp",
+    "public.sdk/source/main/moduleinit.cpp",
+    module_entry,
+    "public.sdk/source/common/pluginview.cpp",
+    "public.sdk/source/common/commoniids.cpp",
+    "base/source/baseiids.cpp",
+    "base/source/fbuffer.cpp",
+    "base/source/fdebug.cpp",
+    "base/source/fobject.cpp",
+    "base/source/fstreamer.cpp",
+    "base/source/fstring.cpp",
+    "base/source/timer.cpp",
+    "base/source/updatehandler.cpp",
+    "base/thread/source/flock.cpp",
+    "base/thread/source/fcondition.cpp",
+    "pluginterfaces/base/coreiids.cpp",
+    "pluginterfaces/base/funknown.cpp",
+    "pluginterfaces/base/ustring.cpp",
+    "pluginterfaces/base/conststringtable.cpp",
+]
+# The SDK's own files raise a few warnings that are its to fix; they are quietened for the SDK
+# objects only, and the example itself still builds with -Wall. GCC and clang differ in which ones
+# (and clang rejects GCC's names, -Wno-class-memaccess, with a warning of its own).
+sdk_env = vst_env.Clone()
+if not msvc:
+    if plat == "macos" or "clang" in env.get("CXX", ""):
+        sdk_env.Append(CCFLAGS=["-Wno-format", "-Wno-unused-function", "-Wno-implicit-const-int-float-conversion"])
+    else:
+        sdk_env.Append(CCFLAGS=["-Wno-class-memaccess", "-Wno-format"])
+sdk_objs = [sdk_env.SharedObject("objs/vst3/" + s.rsplit(".", 1)[0], sdk + "/" + s) for s in sdk_sources]
+vst_objs = sdk_objs + [vst_env.SharedObject("objs/vst3/vst3_gain", "vst3-gain/vst3_gain.cpp")]
+vst_target = binary(out + "/vst3_gain.vst3", "vst3_gain", "vst3")
+if plat == "linux":
+    vst_env.Append(LINKFLAGS=["-Wl,--no-undefined"], LIBS=["pthread", "dl"])
+elif plat == "windows":
+    vst_env.Append(LIBS=["ole32", "user32"])
+elif plat == "macos":
+    vst_env.Append(LINKFLAGS=["-framework", "CoreFoundation", "-framework", "Foundation"])
+vst_lib = plugin_binary(vst_env, vst_target, vst_objs)
+
+# macOS bundles want an Info.plist; hosts read the binary's name from it.
+if plat == "macos":
+    for bundle, name in ((out + "/clap_gain.clap", "clap_gain"), (out + "/vst3_gain.vst3", "vst3_gain")):
+        plist = env.Textfile(bundle + "/Contents/Info.plist", [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+            '<plist version="1.0"><dict>',
+            "<key>CFBundleExecutable</key><string>{}</string>".format(name),
+            "<key>CFBundleIdentifier</key><string>org.godot-audio-plugin-host.example.{}</string>".format(name),
+            "<key>CFBundlePackageType</key><string>BNDL</string>",
+            "</dict></plist>",
+        ], TEXTFILESUFFIX="")
+        Default(plist)
+
+Default(clap_lib, vst_lib)
+
+# --- The host's own CLAP test plugin (tests/plugins/gaph_test_plugin.c), with test_plugin=yes ---
+# Not an example: a deterministic plugin the test suites use (gain, sidechain mix, state). Built
+# here so the tests get it as a proper bundle on every platform from the same build rules.
+if ARGUMENTS.get("test_plugin", "no") == "yes":
+    test_target = binary(out + "/gaph_test.clap", "gaph_test", "clap")
+    # Its GUI (Windows and macOS only) needs user32 on Windows, and the Objective-C runtime on macOS.
+    test_env = clap_env.Clone()
+    if plat == "windows":
+        test_env.Append(LIBS=["user32"])
+    elif plat == "macos":
+        test_env.Append(LIBS=["objc"])
+    test_lib = plugin_binary(test_env, test_target, ["#../tests/plugins/gaph_test_plugin.c"])
+    Default(test_lib)
+    if plat == "macos":
+        Default(env.Textfile(out + "/gaph_test.clap/Contents/Info.plist", [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+            '<plist version="1.0"><dict>',
+            "<key>CFBundleExecutable</key><string>gaph_test</string>",
+            "<key>CFBundleIdentifier</key><string>org.godot-audio-plugin-host.test</string>",
+            "<key>CFBundlePackageType</key><string>BNDL</string>",
+            "</dict></plist>",
+        ], TEXTFILESUFFIX=""))
+
+    # The VST3 test plugin (tests/plugins/gaph_test_vst3.cpp): a pass-through with an editor on
+    # Windows and macOS, for the host's VST3 GUI tests. On the same SDK objects as the example.
+    test_vst_env = vst_env.Clone()
+    if plat == "windows":
+        test_vst_env.Append(LIBS=["user32"])
+    elif plat == "macos":
+        test_vst_env.Append(LIBS=["objc"])
+    test_vst_objs = sdk_objs + [test_vst_env.SharedObject("objs/vst3/gaph_test_vst3", "#../tests/plugins/gaph_test_vst3.cpp")]
+    Default(plugin_binary(test_vst_env, binary(out + "/gaph_test_vst3.vst3", "gaph_test_vst3", "vst3"), test_vst_objs))
+    if plat == "macos":
+        Default(env.Textfile(out + "/gaph_test_vst3.vst3/Contents/Info.plist", [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+            '<plist version="1.0"><dict>',
+            "<key>CFBundleExecutable</key><string>gaph_test_vst3</string>",
+            "<key>CFBundleIdentifier</key><string>org.godot-audio-plugin-host.test-vst3</string>",
+            "<key>CFBundlePackageType</key><string>BNDL</string>",
+            "</dict></plist>",
+        ], TEXTFILESUFFIX=""))

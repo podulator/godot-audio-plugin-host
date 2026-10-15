@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ClapPluginEffect" inherits="AudioEffect" api_type="extension" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Runs a CLAP audio plugin as an effect on an audio bus.
+	</brief_description>
+	<description>
+		Hosts a [url=https://cleveraudio.org]CLAP[/url] audio plugin, such as a reverb, a compressor or a vocoder, as an effect on an [AudioServer] bus. The plugin processes the bus's audio exactly as Godot's built-in effects do.
+		In the editor, every installed CLAP effect appears in the Audio panel's [b]Add Effect[/b] menu under its own name, such as [code]Clap_DragonflyHallReverb[/code]. Choosing one adds a [ClapPluginEffect] with [member plugin_path] already set. Selecting the effect on a bus opens the plugin's own window (see [method open_editor]).
+		Each of the plugin's parameters appears in the inspector as a slider under [b]Parameters[/b], with the plugin's own text for its value. From a script, use [method find_parameter], [method set_parameter] and [method get_parameter_text]. Parameter changes are sample-accurate: they keep their exact spacing in time and are heard one audio block after they are made. [method set_parameter_at] schedules a change ahead.
+		Two things are saved with the scene: [member plugin_state], the plugin's complete state, and [member param_values], the parameters set by hand. A scene refers to the plugin by its path relative to a plugin folder, so it opens on any machine that has the plugin; where the plugin is missing, the effect passes audio through unchanged.
+		[codeblock]
+		var reverb = ClapPluginEffect.new()
+		reverb.plugin_path = "DragonflyHallReverb.clap"
+		AudioServer.add_bus_effect(AudioServer.get_bus_index("Reverb"), reverb)
+
+		var size = reverb.find_parameter("Size")
+		reverb.set_parameter(size, 40.0)
+		print(reverb.get_parameter_text(size)) # The plugin's own text, e.g. "40 m".
+		[/codeblock]
+		[b]Plugin folders:[/b] plugins are found in the folders listed in [code]audio/plugin_host/clap/search_paths[/code] in Project Settings (default [code]res://bin/clap[/code]), then in the system's CLAP folders ([code]CLAP_PATH[/code], [code]~/.clap[/code], [code]/usr/lib/clap[/code] on Linux). The system folders are searched in the editor, and when the game is run from it, if [code]audio/plugin_host/clap/use_system_paths[/code] is on (the default); in an exported game only if [code]use_system_paths_in_exports[/code] is on (off by default). On export, the project's plugin folders are copied to [code]bin/clap[/code] next to the game's executable, since a plugin cannot be loaded from inside a [code].pck[/code] file, and the export warns about each effect whose plugin is in none of them.
+		[b]Note:[/b] Godot runs one instance of an effect per stereo channel pair of a bus, so on a surround bus the plugin runs several times. Parameter changes reach every instance.
+		[b]Note:[/b] Plugin windows are available in the editor only, on Linux (X11, or XWayland on Wayland desktops), Windows and macOS. On macOS the plugin is not given the editor's display scale: macOS scales plugin windows for Retina screens itself.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="close_editor">
+			<return type="void" />
+			<description>
+				Closes the plugin's window, if it is open, and emits [signal editor_closed].
+			</description>
+		</method>
+		<method name="find_parameter">
+			<return type="int" />
+			<param index="0" name="name" type="String" />
+			<description>
+				Returns the id of the parameter with this display name, such as [code]"Output Gain"[/code], or [code]-1[/code] if the plugin has none. Ids, not names, are what the other parameter methods take: a plugin keeps its ids stable across versions, while names may change.
+			</description>
+		</method>
+		<method name="get_active_instance_count">
+			<return type="int" />
+			<description>
+				Returns how many of this effect's instances are running the plugin. Godot creates one instance per stereo channel pair of each bus the effect is on (see [method get_instance_count]). A new instance can pass audio through for a frame or two while its plugin is being created, unless a spare was ready (see [member spare_instances]).
+			</description>
+		</method>
+		<method name="get_frames_processed">
+			<return type="int" />
+			<description>
+				Returns the total number of audio frames processed by all of this effect's instances. Useful to check whether the bus is running at all.
+			</description>
+		</method>
+		<method name="get_instance_count">
+			<return type="int" />
+			<description>
+				Returns how many instances of this effect Godot has created: one per stereo channel pair of each bus the effect is on. [code]0[/code] means the effect is on no bus.
+			</description>
+		</method>
+		<method name="get_load_error">
+			<return type="String" />
+			<description>
+				Returns why the plugin could not be loaded, or an empty string if it loaded (or no [member plugin_path] is set).
+			</description>
+		</method>
+		<method name="get_parameter">
+			<return type="float" />
+			<param index="0" name="id" type="int" />
+			<description>
+				Returns the current value of a parameter, in the plugin's own range (see [method get_parameters]).
+			</description>
+		</method>
+		<method name="get_parameter_text">
+			<return type="String" />
+			<param index="0" name="id" type="int" />
+			<description>
+				Returns the plugin's own display text for a parameter's current value, such as [code]"-12.0 dB"[/code] or [code]"Large Hall"[/code]. Falls back to the plain number if the plugin provides no text.
+			</description>
+		</method>
+		<method name="get_parameters">
+			<return type="Dictionary[]" />
+			<description>
+				Returns every parameter of the plugin, as a [Dictionary] with these keys: [code]id[/code], [code]name[/code], [code]module[/code] (a grouping such as [code]"Filter/Envelope"[/code]), [code]min[/code], [code]max[/code], [code]default[/code], [code]value[/code], [code]text[/code] (when the plugin provides one), [code]stepped[/code], [code]step_count[/code], [code]hidden[/code], [code]read_only[/code], and [code]property[/code] (the name of its inspector property).
+			</description>
+		</method>
+		<method name="get_plugin_info">
+			<return type="Dictionary" />
+			<description>
+				Returns a description of the loaded plugin: [code]id[/code], [code]name[/code], [code]vendor[/code], [code]version[/code], [code]description[/code], [code]features[/code] (a [PackedStringArray] such as [code]["audio-effect", "reverb"][/code]), and [code]inputs[/code] and [code]outputs[/code], each an [Array] of ports with [code]name[/code], [code]channels[/code] and [code]main[/code]. A second input port is a sidechain (see [member sidechain]). Returns an empty [Dictionary] if no plugin is loaded.
+			</description>
+		</method>
+		<method name="is_editor_open" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if the plugin's window is open.
+			</description>
+		</method>
+		<method name="is_plugin_loaded">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if the plugin at [member plugin_path] was found and loaded. If not, [method get_load_error] says why.
+			</description>
+		</method>
+		<method name="open_editor">
+			<return type="bool" />
+			<description>
+				Opens the plugin's own GUI in a window of its own, or brings it to the front if it is already open. Returns [code]false[/code] if it cannot open, with a warning saying why. The window stays open until it is closed by the user, by [method close_editor], or by the plugin, which emits [signal editor_closed].
+				Clicking an enabled effect on a bus in the Audio panel calls this.
+				[b]Note:[/b] Available in the editor only (Linux, Windows and macOS).
+			</description>
+		</method>
+		<method name="scan_plugins" qualifiers="static">
+			<return type="Dictionary[]" />
+			<param index="0" name="extra_dirs" type="PackedStringArray" default="PackedStringArray()" />
+			<description>
+				Returns every CLAP plugin found in [param extra_dirs] and the plugin folders (see the class description), as a [Dictionary] each with [code]path[/code], [code]id[/code], [code]name[/code], [code]vendor[/code], [code]version[/code], [code]description[/code] and [code]features[/code]. A file that could not be loaded is listed with [code]path[/code] and [code]error[/code] instead.
+				[b]Note:[/b] CLAP has no separate metadata files, so this loads every plugin binary to ask it. Call it from a menu, not every frame.
+			</description>
+		</method>
+		<method name="set_parameter">
+			<return type="void" />
+			<param index="0" name="id" type="int" />
+			<param index="1" name="value" type="float" />
+			<description>
+				Sets a parameter, in the plugin's own range (see [method get_parameters]); the value is clamped to that range. The change is heard one audio block (about 11.6 ms at 44.1 kHz) after the call, and changes keep their spacing in time exactly, so a value swept from [method Node._process] moves smoothly.
+			</description>
+		</method>
+		<method name="set_parameter_at">
+			<return type="void" />
+			<param index="0" name="id" type="int" />
+			<param index="1" name="value" type="float" />
+			<param index="2" name="delay" type="float" />
+			<description>
+				Like [method set_parameter], but heard [param delay] seconds later, placed to the exact sample. The stored value, and so the inspector, changes at once.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="param_values" type="Dictionary" setter="set_param_values" getter="get_param_values">
+			The parameters set by hand, as [code]{id: value}[/code]. Saved with the scene and applied after [member plugin_state] when it loads, so they win if the two disagree. Parameters not listed keep whatever the plugin holds: its default, or what a loaded state set.
+			Not shown in the inspector, which shows one slider per parameter under [b]Parameters[/b] instead.
+		</member>
+		<member name="plugin_id" type="String" setter="set_plugin_id" getter="get_plugin_id">
+			Which plugin to load, for a [code].clap[/code] file holding several: the plugin's id, such as [code]"michaelwillis.dragonfly.hall"[/code] (see [method scan_plugins]). Empty means the first plugin in the file. Changing it clears [member param_values] and [member plugin_state], since they belong to the previous plugin.
+		</member>
+		<member name="plugin_path" type="String" setter="set_plugin_path" getter="get_plugin_path">
+			The [code].clap[/code] file to load. Usually relative to a plugin folder, such as [code]"DragonflyHallReverb.clap"[/code], which is what the Add Effect menu stores, so the scene works on other machines. An absolute path, or a [code]res://[/code] one, works too; an absolute path that does not exist falls back to its file name in the plugin folders.
+			The plugin loads on the next frame, or as soon as something needs it. Changing it clears [member param_values] and [member plugin_state].
+		</member>
+		<member name="plugin_state" type="PackedByteArray" setter="set_plugin_state" getter="get_plugin_state">
+			The plugin's complete state, as bytes only the same plugin can read: everything it needs to come back exactly as it was, which can be more than its parameters. Saved with the scene. Reading it asks the plugin for its current state.
+			Setting it from a script loads a preset: it replaces every value set by hand so far ([member param_values]).
+		</member>
+		<member name="sidechain" type="String" setter="set_sidechain" getter="get_sidechain">
+			The name of a sidechain channel to feed into the plugin's second input, such as a ducking compressor's key input or a vocoder's carrier. Put a [ClapSidechainSend] with the same [member ClapSidechainSend.channel] on the bus whose sound should drive it. Empty for no sidechain; the plugin's second input then gets silence.
+			[b]Note:[/b] Godot processes buses from the highest index down. If the source bus has a higher index than this effect's bus, the plugin hears the same audio block; otherwise one block (about 11.6 ms at 44.1 kHz) later.
+		</member>
+		<member name="spare_instances" type="int" setter="set_spare_instances" getter="get_spare_instances">
+			How many ready-made plugin instances to keep for when Godot builds this effect's instances (adding the effect, changing the bus layout, or one per channel pair on surround buses). Godot does that while holding the audio lock, where creating a plugin could stall all audio for a few milliseconds; a spare is taken instantly instead.
+			The default is [code]1[/code], enough for a stereo bus. With [code]0[/code], a new instance passes audio through unprocessed for a frame or two while its plugin is created. Each spare costs one plugin instance of memory, though no audio processing. Set [code]0[/code] for memory-hungry plugins, or more for surround buses (5.1 needs 3 instances, 7.1 needs 4).
+		</member>
+	</members>
+	<signals>
+		<signal name="editor_closed">
+			<description>
+				Emitted when the plugin's window closes: by the user, by the plugin, or by [method close_editor].
+			</description>
+		</signal>
+		<signal name="parameter_changed">
+			<param index="0" name="id" type="int" />
+			<param index="1" name="value" type="float" />
+			<description>
+				Emitted when the plugin changes a parameter itself, for example from its own window. The new value is already stored in [member param_values] and sent to every instance.
+			</description>
+		</signal>
+		<signal name="parameters_changed">
+			<description>
+				Emitted when the plugin's parameter list changes while it runs: names, ranges, or which parameters exist. Values for parameters that no longer exist are dropped, and the inspector is rebuilt.
+			</description>
+		</signal>
+	</signals>
+</class>

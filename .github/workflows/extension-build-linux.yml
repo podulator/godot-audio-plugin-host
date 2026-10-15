@@ -1,0 +1,50 @@
+name: Build Extension - Linux
+
+on:
+  workflow_call:
+    inputs:
+      git-base-ref:
+        type: string
+        default: 'main'
+
+concurrency:
+  group: build-${{ github.ref }}-linux
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Compile and upload Linux (x86_64)
+    # ubuntu-22.04 on purpose: a binary linked against a newer
+    # glibc (a current desktop's) will not start on an older player's machine.
+    runs-on: ubuntu-22.04
+    env:
+      GIT_BASE_REF: ${{ inputs.git-base-ref }}
+      SCONS_PLATFORM: linux
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Set up build cache
+        uses: ./.github/actions/setup-cache
+        continue-on-error: true
+
+      - name: Install build dependencies
+        uses: ./.github/actions/install-deps
+
+      - name: Setup GCC problem matcher
+        uses: ammaraskar/gcc-problem-matcher@master
+
+      - name: Build (release)
+        uses: ./.github/actions/build-extension
+        with:
+          target: template_release
+
+      - name: Build (debug)
+        uses: ./.github/actions/build-extension
+        with:
+          target: template_debug
+
+      - name: Upload
+        uses: ./.github/actions/upload-extension

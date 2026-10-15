@@ -1,0 +1,83 @@
+name: Run Tests - Platform
+
+# The cross-platform test (tests/platform/run.sh -> demo/tests/platform_test.tscn) on one OS:
+# builds the extensions, this repository's own plugins (examples/ and the test plugin), installs
+# them in the demo project and runs the scene headless. It needs no third-party plugins, so it
+# means the same thing on every runner: plugin hosting really working on that platform, both
+# formats (loading, exact gain, sample-exact scheduled changes, sidechain, state, menu classes).
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        required: true
+      platform:
+        type: string
+        required: true
+
+concurrency:
+  group: test-${{ github.ref }}-platform-${{ inputs.platform }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: "4.5.0" # the oldest version supported (compatibility_minimum)
+
+jobs:
+  test:
+    name: Platform test (${{ inputs.platform }})
+    runs-on: ${{ inputs.runner }}
+    env:
+      SCONS_PLATFORM: ${{ inputs.platform }}
+      # Its own cache, apart from the build jobs': those build template_release, this
+      # template_debug, plus the example plugins. Read by godot-cpp's SConstruct and by
+      # examples/SConstruct, for every SCons run in the job.
+      SCONS_PLATFORM_SUFFIX: "-platformtest"
+      SCONS_CACHE: ${{ github.workspace }}/.scons-cache/
+      SCONS_CACHE_LIMIT: 7168
+    defaults:
+      run:
+        shell: bash # Git Bash on Windows: the same script runs everywhere
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Install build dependencies
+        uses: ./.github/actions/install-deps
+
+      - name: Set up build cache
+        uses: ./.github/actions/setup-cache
+
+      # The VST 3 example needs a few SDK parts the host doesn't (pluginview, timer, the base
+      # library), all inside base/ and public.sdk/, which install-deps already fetched.
+
+      - name: Install Godot ${{ env.GODOT_VERSION }}
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: ${{ env.GODOT_VERSION }}
+          use-dotnet: false
+          include-templates: false
+
+      - name: Check the tools
+        run: |
+          scons --version | head -2
+          godot --version
+
+      - name: Build the extensions (debug)
+        uses: ./.github/actions/build-extension
+        with:
+          target: template_debug
+
+      - name: Run tests/platform/run.sh
+        run: tests/platform/run.sh
+
+      # Plugin windows, without Godot: the platform's window class and (Windows) the CLAP GUI path
+      # with our test plugin's GUI. Natively here; tests/windows/run.sh also runs under Wine on Linux.
+      - name: Plugin windows (Windows)
+        if: ${{ inputs.platform == 'windows' }}
+        run: tests/windows/run.sh
+
+      - name: Plugin windows (macOS)
+        if: ${{ inputs.platform == 'macos' }}
+        run: tests/macos/run.sh

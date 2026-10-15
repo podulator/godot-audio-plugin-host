@@ -1,0 +1,64 @@
+name: Build Extension - macOS
+
+on:
+  workflow_call:
+    inputs:
+      git-base-ref:
+        type: string
+        default: 'main'
+      with-codesign:
+        description: Sign with the Developer ID and notarise (needs the secrets in docs/macos-signing.md)
+        type: boolean
+        default: false
+
+concurrency:
+  group: build-${{ github.ref }}-macos
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Universal (arm64 + x86_64), godot-cpp's macOS default. Always signed AD HOC and verified,
+    # which proves the frameworks are signable; with with-codesign, signed with the Developer ID
+    # and notarised, so they load on any Mac. Ad-hoc ones need their quarantine flag cleared
+    # (xattr -dr com.apple.quarantine) after a download.
+    name: Compile and upload macOS (universal)
+    runs-on: macos-latest
+    env:
+      GIT_BASE_REF: ${{ inputs.git-base-ref }}
+      SCONS_PLATFORM: macos
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Set up build cache
+        uses: ./.github/actions/setup-cache
+        continue-on-error: true
+
+      - name: Install build dependencies
+        uses: ./.github/actions/install-deps
+
+      - name: Build (release)
+        uses: ./.github/actions/build-extension
+        with:
+          target: template_release
+
+      - name: Build (debug)
+        uses: ./.github/actions/build-extension
+        with:
+          target: template_debug
+
+      - name: Sign (ad hoc, or Developer ID + notarisation)
+        uses: ./.github/actions/sign-macos
+        with:
+          identity: ${{ inputs.with-codesign }}
+          apple-cert-base64: ${{ secrets.APPLE_CERT_BASE64 }}
+          apple-cert-password: ${{ secrets.APPLE_CERT_PASSWORD }}
+          apple-dev-id: ${{ secrets.APPLE_DEV_ID }}
+          apple-dev-app-id: ${{ secrets.APPLE_DEV_APP_ID }}
+          apple-dev-team-id: ${{ secrets.APPLE_DEV_TEAM_ID }}
+          apple-dev-password: ${{ secrets.APPLE_DEV_PASSWORD }}
+
+      - name: Upload
+        uses: ./.github/actions/upload-extension

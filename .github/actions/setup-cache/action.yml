@@ -1,0 +1,17 @@
+name: Set up cache
+description: The SCons build cache, for faster consecutive builds.
+
+# Restored by the closest match: this exact commit first, then the same ref, then the base
+# branch, so a new commit still reuses most objects from the last build.
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/cache@v6
+      with:
+        path: ${{ github.workspace }}/.scons-cache/
+        key: ${{ env.SCONS_PLATFORM }}${{ env.SCONS_PLATFORM_SUFFIX }}-${{ env.GIT_BASE_REF }}-${{ github.ref }}-${{ github.sha }}
+        restore-keys: |
+          ${{ env.SCONS_PLATFORM }}${{ env.SCONS_PLATFORM_SUFFIX }}-${{ env.GIT_BASE_REF }}-${{ github.ref }}-${{ github.sha }}
+          ${{ env.SCONS_PLATFORM }}${{ env.SCONS_PLATFORM_SUFFIX }}-${{ env.GIT_BASE_REF }}-${{ github.ref }}
+          ${{ env.SCONS_PLATFORM }}${{ env.SCONS_PLATFORM_SUFFIX }}-${{ env.GIT_BASE_REF }}-refs/heads/${{ env.GIT_BASE_REF }}
+          ${{ env.SCONS_PLATFORM }}${{ env.SCONS_PLATFORM_SUFFIX }}-${{ env.GIT_BASE_REF }}

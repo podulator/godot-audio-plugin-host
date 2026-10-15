@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="Vst3PluginEffect" inherits="AudioEffect" api_type="extension" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Runs a VST® 3 audio plugin as an effect on an audio bus.
+	</brief_description>
+	<description>
+		Hosts a [url=https://www.steinberg.net/technology/]VST3[/url] audio plugin, such as a reverb, a compressor or a vocoder, as an effect on an [AudioServer] bus. The plugin processes the bus's audio exactly as Godot's built-in effects do.
+		In the editor, every installed VST3 effect appears in the Audio panel's [b]Add Effect[/b] menu under its own name, such as [code]Vst3_DragonflyHallReverb[/code]. Choosing one adds a [Vst3PluginEffect] with [member plugin_path] already set. Selecting the effect on a bus opens the plugin's own window (see [method open_editor]).
+		Each of the plugin's parameters appears in the inspector as a slider under [b]Parameters[/b], with the plugin's own text for its value. VST3 exchanges every parameter as a [i]normalized[/i] value from [code]0.0[/code] to [code]1.0[/code], so that is the range of every slider and of [method set_parameter]; the plugin's text shows the real units. From a script, use [method find_parameter], [method set_parameter] and [method get_parameter_text]. Parameter changes are sample-accurate: they keep their exact spacing in time and are heard one audio block after they are made. [method set_parameter_at] schedules a change ahead.
+		Two things are saved with the scene: [member plugin_state], the plugin's complete state, and [member param_values], the parameters set by hand. A scene refers to the plugin by its path relative to a plugin folder, so it opens on any machine that has the plugin; where the plugin is missing, the effect passes audio through unchanged.
+		[codeblock]
+		var reverb = Vst3PluginEffect.new()
+		reverb.plugin_path = "DragonflyHallReverb.vst3"
+		AudioServer.add_bus_effect(AudioServer.get_bus_index("Reverb"), reverb)
+
+		var size = reverb.find_parameter("Size")
+		reverb.set_parameter(size, 0.5) # Normalized, 0.0 to 1.0.
+		print(reverb.get_parameter_text(size)) # The plugin's own text, with its units.
+		[/codeblock]
+		[b]Plugin folders:[/b] plugins are found in the folders listed in [code]audio/plugin_host/vst3/search_paths[/code] in Project Settings (default [code]res://bin/vst3[/code]), then in the system's VST3 folders ([code]~/.vst3[/code], [code]/usr/lib/vst3[/code], [code]/usr/local/lib/vst3[/code] on Linux, after any in the [code]GAPH_VST3_PATH[/code] environment variable). The system folders are searched in the editor, and when the game is run from it, if [code]audio/plugin_host/vst3/use_system_paths[/code] is on (the default); in an exported game only if [code]use_system_paths_in_exports[/code] is on (off by default). On export, the project's plugin folders are copied to [code]bin/vst3[/code] next to the game's executable, since a plugin cannot be loaded from inside a [code].pck[/code] file, and the export warns about each effect whose plugin is in none of them.
+		[b]Note:[/b] Godot runs one instance of an effect per stereo channel pair of a bus, so on a surround bus the plugin runs several times. Parameter changes reach every instance.
+		VST is a registered trademark of Steinberg Media Technologies GmbH.
+		[b]Note:[/b] Plugin windows are available in the editor only, on Linux (X11, or XWayland on Wayland desktops), Windows and macOS. On macOS the plugin is not given the editor's display scale: macOS scales plugin windows for Retina screens itself.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="close_editor">
+			<return type="void" />
+			<description>
+				Closes the plugin's window, if it is open, and emits [signal editor_closed].
+			</description>
+		</method>
+		<method name="find_parameter">
+			<return type="int" />
+			<param index="0" name="name" type="String" />
+			<description>
+				Returns the id of the parameter with this display name, such as [code]"Output Gain"[/code], or [code]-1[/code] if the plugin has none. Ids, not names, are what the other parameter methods take: a plugin keeps its ids stable across versions, while names may change.
+			</description>
+		</method>
+		<method name="get_active_instance_count">
+			<return type="int" />
+			<description>
+				Returns how many of this effect's instances are running the plugin. Godot creates one instance per stereo channel pair of each bus the effect is on (see [method get_instance_count]). A new instance can pass audio through for a frame or two while its plugin is being created, unless a spare was ready (see [member spare_instances]).
+			</description>
+		</method>
+		<method name="get_frames_processed">
+			<return type="int" />
+			<description>
+				Returns the total number of audio frames processed by all of this effect's instances. Useful to check whether the bus is running at all.
+			</description>
+		</method>
+		<method name="get_instance_count">
+			<return type="int" />
+			<description>
+				Returns how many instances of this effect Godot has created: one per stereo channel pair of each bus the effect is on. [code]0[/code] means the effect is on no bus.
+			</description>
+		</method>
+		<method name="get_load_error">
+			<return type="String" />
+			<description>
+				Returns why the plugin could not be loaded, or an empty string if it loaded (or no [member plugin_path] is set).
+			</description>
+		</method>
+		<method name="get_parameter">
+			<return type="float" />
+			<param index="0" name="id" type="int" />
+			<description>
+				Returns the current value of a parameter, normalized from [code]0.0[/code] to [code]1.0[/code].
+			</description>
+		</method>
+		<method name="get_parameter_text">
+			<return type="String" />
+			<param index="0" name="id" type="int" />
+			<description>
+				Returns the plugin's own display text for a parameter's current value, such as [code]"-12.0 dB"[/code] or [code]"Large Hall"[/code], with the units the plugin declares appended. Falls back to the plain number if the plugin provides no text.
+			</description>
+		</method>
+		<method name="get_parameters">
+			<return type="Dictionary[]" />
+			<description>
+				Returns every parameter of the plugin, as a [Dictionary] with these keys (for VST3, [code]min[/code] is always [code]0.0[/code] and [code]max[/code] always [code]1.0[/code]): [code]id[/code], [code]name[/code], [code]module[/code] (a grouping such as [code]"Filter/Envelope"[/code]), [code]min[/code], [code]max[/code], [code]default[/code], [code]value[/code], [code]text[/code] (when the plugin provides one), [code]stepped[/code], [code]step_count[/code], [code]hidden[/code], [code]read_only[/code], and [code]property[/code] (the name of its inspector property).
+			</description>
+		</method>
+		<method name="get_plugin_info">
+			<return type="Dictionary" />
+			<description>
+				Returns a description of the loaded plugin: [code]id[/code], [code]name[/code], [code]vendor[/code], [code]version[/code], [code]description[/code], [code]features[/code] (the plugin's VST3 subcategories, such as [code]["Fx", "Dynamics"][/code]), and [code]inputs[/code] and [code]outputs[/code], each an [Array] of buses with [code]name[/code], [code]channels[/code] and [code]main[/code]. A second input bus is a sidechain (see [member sidechain]). Returns an empty [Dictionary] if no plugin is loaded.
+			</description>
+		</method>
+		<method name="is_editor_open" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if the plugin's window is open.
+			</description>
+		</method>
+		<method name="is_plugin_loaded">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if the plugin at [member plugin_path] was found and loaded. If not, [method get_load_error] says why.
+			</description>
+		</method>
+		<method name="open_editor">
+			<return type="bool" />
+			<description>
+				Opens the plugin's own GUI in a window of its own, or brings it to the front if it is already open. Returns [code]false[/code] if it cannot open, with a warning saying why. The window stays open until it is closed by the user, by [method close_editor], or by the plugin, which emits [signal editor_closed].
+				Clicking an enabled effect on a bus in the Audio panel calls this.
+				[b]Note:[/b] Available in the editor only (Linux, Windows and macOS).
+			</description>
+		</method>
+		<method name="scan_plugins" qualifiers="static">
+			<return type="Dictionary[]" />
+			<param index="0" name="extra_dirs" type="PackedStringArray" default="PackedStringArray()" />
+			<description>
+				Returns every VST3 effect found in [param extra_dirs] and the plugin folders (see the class description), as a [Dictionary] each with [code]path[/code], [code]id[/code], [code]name[/code], [code]vendor[/code], [code]version[/code], [code]description[/code], [code]features[/code] and [code]from_moduleinfo[/code]. Instruments are left out. A bundle that could not be loaded is listed with [code]path[/code] and [code]error[/code] instead.
+				A bundle with a [code]Contents/Resources/moduleinfo.json[/code] is read from that file without loading its binary at all ([code]from_moduleinfo[/code] is [code]true[/code]); others are loaded to ask them, so call this from a menu, not every frame.
+			</description>
+		</method>
+		<method name="set_parameter">
+			<return type="void" />
+			<param index="0" name="id" type="int" />
+			<param index="1" name="value" type="float" />
+			<description>
+				Sets a parameter, normalized from [code]0.0[/code] to [code]1.0[/code]; the value is clamped to that range. The change is heard one audio block (about 11.6 ms at 44.1 kHz) after the call, and changes keep their spacing in time exactly, so a value swept from [method Node._process] moves smoothly.
+			</description>
+		</method>
+		<method name="set_parameter_at">
+			<return type="void" />
+			<param index="0" name="id" type="int" />
+			<param index="1" name="value" type="float" />
+			<param index="2" name="delay" type="float" />
+			<description>
+				Like [method set_parameter], but heard [param delay] seconds later, placed to the exact sample. The stored value, and so the inspector, changes at once.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="param_values" type="Dictionary" setter="set_param_values" getter="get_param_values">
+			The parameters set by hand, as [code]{id: value}[/code]. Saved with the scene and applied after [member plugin_state] when it loads, so they win if the two disagree. Parameters not listed keep whatever the plugin holds: its default, or what a loaded state set.
+			Not shown in the inspector, which shows one slider per parameter under [b]Parameters[/b] instead.
+		</member>
+		<member name="plugin_id" type="String" setter="set_plugin_id" getter="get_plugin_id">
+			Which effect to load, for a [code].vst3[/code] bundle holding several: its class id, 32 hexadecimal digits (see [method scan_plugins]). Empty means the first effect in the bundle. Changing it clears [member param_values] and [member plugin_state], since they belong to the previous plugin.
+		</member>
+		<member name="plugin_path" type="String" setter="set_plugin_path" getter="get_plugin_path">
+			The [code].vst3[/code] bundle to load (a folder, on every platform). Usually relative to a plugin folder, such as [code]"DragonflyHallReverb.vst3"[/code], which is what the Add Effect menu stores, so the scene works on other machines. An absolute path, or a [code]res://[/code] one, works too; an absolute path that does not exist falls back to its file name in the plugin folders.
+			The plugin loads on the next frame, or as soon as something needs it. Changing it clears [member param_values] and [member plugin_state].
+		</member>
+		<member name="plugin_state" type="PackedByteArray" setter="set_plugin_state" getter="get_plugin_state">
+			The plugin's complete state, as bytes only the same plugin can read: everything it needs to come back exactly as it was, which can be more than its parameters. A VST3 plugin has two parts, its processor and its controller, and both of their states are kept. Saved with the scene. Reading it asks the plugin for its current state.
+			Setting it from a script loads a preset: it replaces every value set by hand so far ([member param_values]).
+		</member>
+		<member name="sidechain" type="String" setter="set_sidechain" getter="get_sidechain">
+			The name of a sidechain channel to feed into the plugin's second input bus, such as a ducking compressor's key input or a vocoder's carrier. Put a [Vst3SidechainSend] with the same [member Vst3SidechainSend.channel] on the bus whose sound should drive it. Empty for no sidechain; the plugin's second input then gets silence.
+			[b]Note:[/b] Godot processes buses from the highest index down. If the source bus has a higher index than this effect's bus, the plugin hears the same audio block; otherwise one block (about 11.6 ms at 44.1 kHz) later.
+		</member>
+		<member name="spare_instances" type="int" setter="set_spare_instances" getter="get_spare_instances">
+			How many ready-made plugin instances to keep for when Godot builds this effect's instances (adding the effect, changing the bus layout, or one per channel pair on surround buses). Godot does that while holding the audio lock, where creating a plugin could stall all audio for a few milliseconds; a spare is taken instantly instead.
+			The default is [code]1[/code], enough for a stereo bus. With [code]0[/code], a new instance passes audio through unprocessed for a frame or two while its plugin is created. Each spare costs one plugin instance of memory, though no audio processing. Set [code]0[/code] for memory-hungry plugins, or more for surround buses (5.1 needs 3 instances, 7.1 needs 4).
+		</member>
+	</members>
+	<signals>
+		<signal name="editor_closed">
+			<description>
+				Emitted when the plugin's window closes: by the user, by the plugin, or by [method close_editor].
+			</description>
+		</signal>
+		<signal name="parameter_changed">
+			<param index="0" name="id" type="int" />
+			<param index="1" name="value" type="float" />
+			<description>
+				Emitted when the plugin changes a parameter itself, for example from its own window. The new value is already stored in [member param_values] and sent to every instance.
+			</description>
+		</signal>
+		<signal name="parameters_changed">
+			<description>
+				Emitted when the plugin's parameter list changes while it runs: names, ranges, or which parameters exist. Values for parameters that no longer exist are dropped, and the inspector is rebuilt.
+			</description>
+		</signal>
+	</signals>
+</class>

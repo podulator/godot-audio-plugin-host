@@ -1,0 +1,221 @@
+name: Build all platforms
+
+# Runs ONLY by hand or on a version tag: ordinary pushes run nothing, because on
+# a private repository every run costs Actions minutes, macOS at 10x and Windows at 2x.
+#
+# - By hand (Actions > Build all platforms > Run workflow): each job is a checkbox, so a Linux-only
+#   run costs one Linux job. The result is a run artifact; no release.
+# - A version tag (v*, e.g. v1.0.0): everything. The tag must match VERSION (checked first, before
+#   any minutes go on macOS). All three platforms built, the full suite on Linux, the platform tests
+#   (with the plugin-window tests) on Windows and macOS, then a DRAFT GitHub release with the
+#   installable zip, to check and publish by hand. Tags with a hyphen (v1.0.0-beta) are marked
+#   pre-release. macOS is signed with the Developer ID and notarised only if the repository
+#   variable MACOS_CODESIGN is "true" (docs/macos-signing.md); otherwise ad hoc.
+#
+# Linux, Windows and macOS only. Web and Android are not missing by accident: hosting a plugin
+# means loading a native CLAP or VST3 binary, which WebAssembly cannot do, and Android has no
+# plugins in either format to load.
+#
+# Platform tests (Linux, Windows, macOS): tests/platform/run.sh on that OS, with plugins built from
+# this repository, so hosting is shown working there without anyone needing that machine.
+#
+# The result is one artifact, godot-audio-plugin-host, holding addons/clap_host and
+# addons/vst3_host with every platform's libraries: unzip it into a Godot project's root.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      linux:
+        description: 'Linux x86_64'
+        type: boolean
+        default: true
+      windows:
+        description: 'Windows x86_64 (billed at 2x)'
+        type: boolean
+        default: true
+      macos:
+        description: 'macOS universal (billed at 10x; signed ad hoc)'
+        type: boolean
+        default: false
+      macos_codesign:
+        description: 'macOS: sign with the Developer ID and notarise (needs the Apple secrets)'
+        type: boolean
+        default: false
+      tests:
+        description: 'Run the full test suite on Linux'
+        type: boolean
+        default: true
+      platform_linux:
+        description: 'Platform test on Linux (our own plugins, both formats)'
+        type: boolean
+        default: true
+      platform_windows:
+        description: 'Platform test on Windows (billed at 2x)'
+        type: boolean
+        default: false
+      platform_macos:
+        description: 'Platform test on macOS (billed at 10x)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: build-all-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # First and cheap: on a tag, the tag must be "v" + VERSION, or the release would carry the wrong
+  # version in its macOS Info.plists. Everything else waits for this, so a mistyped tag costs one
+  # Linux minute, not a macOS build.
+  version:
+    name: Check the version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        shell: bash
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [ "${tag_version%%-*}" != "$version" ]; then
+              echo "::error::tag $GITHUB_REF_NAME does not match VERSION ($version): tag v$version, or change VERSION"
+              exit 1
+            fi
+          fi
+          echo "VERSION $version, $GITHUB_EVENT_NAME $GITHUB_REF_NAME"
+
+  linux:
+    needs: version
+    if: ${{ inputs.linux || github.event_name == 'push' }}
+    uses: ./.github/workflows/extension-build-linux.yml
+    with:
+      git-base-ref: ${{ github.ref_name }}
+
+  windows:
+    needs: version
+    if: ${{ inputs.windows || github.event_name == 'push' }}
+    uses: ./.github/workflows/extension-build-windows.yml
+    with:
+      git-base-ref: ${{ github.ref_name }}
+
+  macos:
+    needs: version
+    if: ${{ inputs.macos || github.event_name == 'push' }}
+    uses: ./.github/workflows/extension-build-macos.yml
+    with:
+      git-base-ref: ${{ github.ref_name }}
+      with-codesign: ${{ inputs.macos_codesign || (github.event_name == 'push' && vars.MACOS_CODESIGN == 'true') }}
+    # The Apple secrets, when signing: a reusable workflow sees only the secrets passed to it.
+    secrets: inherit
+
+  tests:
+    needs: version
+    if: ${{ inputs.tests || github.event_name == 'push' }}
+    uses: ./.github/workflows/tests-linux.yml
+
+  # tests/platform/run.sh on each OS: plugin hosting actually running there, with plugins built
+  # from this repository. Each builds what it needs itself, so it runs without the build jobs.
+  # On a tag, Linux is covered by the full suite above; Windows and macOS get their platform tests.
+  platform-linux:
+    needs: version
+    if: ${{ inputs.platform_linux }}
+    uses: ./.github/workflows/tests-platform.yml
+    with:
+      runner: ubuntu-22.04
+      platform: linux
+
+  platform-windows:
+    needs: version
+    if: ${{ inputs.platform_windows || github.event_name == 'push' }}
+    uses: ./.github/workflows/tests-platform.yml
+    with:
+      runner: windows-latest
+      platform: windows
+
+  platform-macos:
+    needs: version
+    if: ${{ inputs.platform_macos || github.event_name == 'push' }}
+    uses: ./.github/workflows/tests-platform.yml
+    with:
+      runner: macos-latest
+      platform: macos
+
+  # Every platform's addons/ merged into one installable artifact. By hand: if at least one build
+  # succeeded (a platform not ticked contributes nothing). On a tag: only if all three did.
+  package:
+    needs: [ linux, windows, macos ]
+    if: ${{ !cancelled() && ((github.event_name == 'push' && needs.linux.result == 'success' && needs.windows.result == 'success' && needs.macos.result == 'success') || (github.event_name != 'push' && (needs.linux.result == 'success' || needs.windows.result == 'success' || needs.macos.result == 'success'))) }}
+    name: Package the addons
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download every platform's build
+        uses: actions/download-artifact@v8
+        with:
+          pattern: addons-*
+          path: merged/addons
+          merge-multiple: true
+
+      # The repository's LICENSE and THIRD_PARTY_NOTICES.md go into each addon folder as well:
+      # users copy only addons/clap_host and addons/vst3_host into their projects (the Asset
+      # Library way), and the MIT notices of the code compiled into the libraries (CLAP,
+      # godot-cpp, VST 3 SDK) have to travel with them. Copied here rather than kept twice.
+      - name: Add the docs and licence
+        shell: bash
+        run: |
+          cp README.md LICENSE THIRD_PARTY_NOTICES.md merged/
+          for addon in merged/addons/*/; do cp LICENSE THIRD_PARTY_NOTICES.md "$addon"; done
+          find merged -type f | sort
+          # Only libraries, .gdextension files and the notices belong in the zip: no linker
+          # by-products from any platform (import libraries, .exp, debug databases).
+          leftovers="$(find merged \( -name '*.a' -o -name '*.lib' -o -name '*.exp' -o -name '*.pdb' -o -name '*.ilk' \) -print)"
+          if [ -n "$leftovers" ]; then
+            echo "::error::linker by-products in the package: $leftovers"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: godot-audio-plugin-host
+          path: merged/
+          retention-days: 30
+
+  # Tags only, and only if everything passed: a DRAFT release with the installable zip, to check
+  # and publish by hand. A tag with a hyphen (v1.0.0-beta) is marked pre-release.
+  release:
+    name: Draft release
+    needs: [ version, package, tests, platform-windows, platform-macos ]
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: godot-audio-plugin-host
+          path: godot-audio-plugin-host
+
+      - name: Create the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNED: ${{ vars.MACOS_CODESIGN == 'true' }}
+        run: |
+          zip_name="godot-audio-plugin-host-${GITHUB_REF_NAME}.zip"
+          (cd godot-audio-plugin-host && zip -qr "../$zip_name" .)
+          ls -la "$zip_name"
+          prerelease=()
+          [[ "$GITHUB_REF_NAME" == *-* ]] && prerelease=(--prerelease)
+          if [ "$SIGNED" = true ]; then
+            mac="macOS: signed with a Developer ID and notarised."
+          else
+            mac="macOS: signed ad hoc only; after downloading, run xattr -dr com.apple.quarantine addons/clap_host addons/vst3_host."
+          fi
+          gh release create "$GITHUB_REF_NAME" "$zip_name" --repo "$GITHUB_REPOSITORY" \
+            --draft "${prerelease[@]}" --title "$GITHUB_REF_NAME" \
+            --notes "Built from $GITHUB_SHA: Linux x86_64, Windows x86_64 and macOS universal libraries for both addons (clap_host, vst3_host), Godot 4.5 or later. Copy addons/clap_host and/or addons/vst3_host into your project's addons/ folder; see README.md inside. $mac"

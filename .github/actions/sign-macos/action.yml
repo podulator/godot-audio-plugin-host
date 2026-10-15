@@ -1,0 +1,57 @@
+name: Sign the macOS frameworks
+description: Signs every macOS framework in demo/addons/*/bin, ad hoc or with a Developer ID, and notarises them.
+
+# Two modes:
+#   identity: false (every build)  an AD-HOC signature ("-", no certificate), then a strict verify.
+#     Proves the frameworks are signable as built (each needs its Resources/Info.plist), and
+#     arm64 Macs run nothing unsigned anyway. Users still have to clear the quarantine flag.
+#   identity: true                 a Developer ID signature with the hardened runtime, then
+#     notarisation by Apple: the frameworks then load on any Mac, with no quarantine dance.
+#     Needs the secrets in docs/macos-signing.md; stops with a clear error without them.
+#
+# Hardened runtime (--options runtime): notarisation rejects code signed without it. Each
+# framework is signed directly (no --deep, which Apple deprecates), and all are notarised in one
+# submission.
+
+inputs:
+  identity:
+    description: Sign with the Developer ID from the secrets and notarise ("true"), or ad hoc.
+    default: "false"
+  apple-cert-base64:
+    default: ""
+  apple-cert-password:
+    default: ""
+  apple-dev-id:
+    default: ""
+  apple-dev-app-id:
+    default: ""
+  apple-dev-team-id:
+    default: ""
+  apple-dev-password:
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Sign ad hoc, and verify
+      if: ${{ inputs.identity != 'true' }}
+      shell: bash
+      run: $GITHUB_ACTION_PATH/sign.sh adhoc
+
+    - name: Set up the keychain with the Developer ID certificate
+      if: ${{ inputs.identity == 'true' }}
+      shell: bash
+      env:
+        APPLE_CERT_BASE64: ${{ inputs.apple-cert-base64 }}
+        APPLE_CERT_PASSWORD: ${{ inputs.apple-cert-password }}
+      run: $GITHUB_ACTION_PATH/setup.sh
+
+    - name: Sign with the Developer ID, and notarise
+      if: ${{ inputs.identity == 'true' }}
+      shell: bash
+      env:
+        APPLE_DEV_ID: ${{ inputs.apple-dev-id }}
+        APPLE_DEV_APP_ID: ${{ inputs.apple-dev-app-id }}
+        APPLE_DEV_TEAM_ID: ${{ inputs.apple-dev-team-id }}
+        APPLE_DEV_PASSWORD: ${{ inputs.apple-dev-password }}
+      run: $GITHUB_ACTION_PATH/sign.sh identity
