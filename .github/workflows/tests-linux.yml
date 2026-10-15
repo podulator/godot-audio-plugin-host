@@ -1,0 +1,69 @@
+name: Run Tests - Linux
+
+# The whole test suite (tests/run_all.sh) on Linux: core tests under ASan and TSan, both plugin
+# hosts, every headless Godot scene, the scan guard's crash test, a Linux export (debug and
+# release) and the macOS app layout. Tests that need a plugin CI
+# does not have (Dragonfly Reverb, OneTrick URCHIN) skip themselves, so this proves the build and the host
+# logic; the plugin-specific measurements run locally.
+
+on:
+  workflow_call:
+
+concurrency:
+  group: test-${{ github.ref }}-linux
+  cancel-in-progress: true
+
+env:
+  # Oldest version the addons support (compatibility_minimum in the .gdextension files).
+  GODOT_VERSION: "4.5.0"
+
+jobs:
+  run-tests:
+    name: Run the test suite (Linux)
+    runs-on: ubuntu-22.04
+    env:
+      SCONS_PLATFORM: linux
+      # Its own build cache (template_debug and template_release, ASan/TSan test builds, the
+      # example plugins): every SCons run in the job reads these.
+      SCONS_PLATFORM_SUFFIX: "-tests"
+      SCONS_CACHE: ${{ github.workspace }}/.scons-cache/
+      SCONS_CACHE_LIMIT: 7168
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Install build dependencies
+        uses: ./.github/actions/install-deps
+
+      - name: Set up build cache
+        uses: ./.github/actions/setup-cache
+        continue-on-error: true
+
+      - name: Install Godot ${{ env.GODOT_VERSION }}
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: ${{ env.GODOT_VERSION }}
+          use-dotnet: false
+          # The export tests: a real Linux export, run, and a macOS app assembled here, on a 1x
+          # Linux runner (no Mac needed to build one).
+          # setup-godot caches the download.
+          include-templates: true
+
+      # run_all.sh expects SCons in .venv/ (how it is installed locally); point it at the one
+      # install-deps put on the PATH.
+      - name: Prepare the test environment
+        shell: bash
+        run: |
+          mkdir -p .venv/bin
+          ln -s "$(command -v scons)" .venv/bin/scons
+          godot --version
+
+      - name: Build (debug, for the tests)
+        uses: ./.github/actions/build-extension
+        with:
+          target: template_debug
+
+      - name: Run tests/run_all.sh
+        shell: bash
+        run: tests/run_all.sh

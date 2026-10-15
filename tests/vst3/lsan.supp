@@ -1,0 +1,12 @@
+# LeakSanitizer suppressions for the VST3 tests.
+#
+# Plugins may allocate inside their ModuleEntry() and keep the pointers in their own static data,
+# never freeing them in ModuleExit(). When the host unloads the binary, those statics vanish and
+# the memory looks leaked. That is plugin-side behaviour, not a host leak: seen with OneTrick
+# URCHIN, and with some plugin frameworks' VST3 wrappers (identical 8 KB sets,
+# all allocated under the SDK's ModuleEntry call). Suppressing allocations whose stack passes
+# through module_linux.cpp hides exactly those; anything the host allocates is still reported.
+#
+# run.sh sets ASAN_OPTIONS=fast_unwind_on_malloc=0: the fast unwinder often cannot walk through
+# plugin code that lacks frame pointers, stops early, and then never reaches this frame.
+leak:module_linux.cpp

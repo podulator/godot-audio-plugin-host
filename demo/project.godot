@@ -1,0 +1,7 @@
+; Engine configuration file.
+config_version=5
+
+[application]
+
+config/name="Godot Audio Plugin Host demo"
+config/features=PackedStringArray("4.5")

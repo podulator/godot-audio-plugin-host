@@ -1,0 +1,53 @@
+name: Build both extensions
+description: Builds clap_host and vst3_host for one target; the libraries land in demo/addons/*/bin.
+
+inputs:
+  target:
+    description: template_release or template_debug.
+    default: "template_release"
+  sconsflags:
+    description: Additional SCons flags.
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Build with SCons
+      shell: bash
+      env:
+        SCONSFLAGS: ${{ inputs.sconsflags }} use_hot_reload=no
+        SCONS_CACHE: ${{ github.workspace }}/.scons-cache/
+        SCONS_CACHE_LIMIT: 7168
+      run: |
+        echo "Building with: platform=$SCONS_PLATFORM target=${{ inputs.target }} $SCONSFLAGS"
+        scons platform=$SCONS_PLATFORM target=${{ inputs.target }} $SCONSFLAGS -j4
+        ls -lR demo/addons/*/bin
+
+    # Windows builds must use MSVC, the compiler nearly every Windows plugin is built with. godot-cpp
+    # falls back to MinGW without a word when SCons cannot find Visual Studio (it did, for weeks,
+    # once the runners moved to VS 2026 and our SCons was too old to know it). MinGW leaves
+    # lib<name>.a import libraries next to the DLLs, MSVC never does: so their presence fails the
+    # build here, rather than shipping a MinGW build by accident.
+    - name: Check the compiler (Windows)
+      if: ${{ env.SCONS_PLATFORM == 'windows' }}
+      shell: bash
+      run: |
+        if ls demo/addons/*/bin/liblib*.a > /dev/null 2>&1; then
+          echo "::error::the Windows libraries were built with MinGW, not MSVC: SCons did not find Visual Studio (check scons_version in install-deps)"
+          exit 1
+        fi
+        echo "Built with MSVC."
+
+    # MSVC leaves linker by-products next to the DLLs (an import library .lib and its .exp, and
+    # .pdb debug data when asked for); only the DLLs belong in the addon. (In bash: PowerShell's
+    # Get-ChildItem -Include matched nothing with this path, unnoticed while builds were MinGW.)
+    - name: Tidy the binaries (Windows)
+      if: ${{ env.SCONS_PLATFORM == 'windows' }}
+      shell: bash
+      run: |
+        rm -fv demo/addons/*/bin/*.exp demo/addons/*/bin/*.lib demo/addons/*/bin/*.pdb
+        if ls demo/addons/*/bin/*.exp demo/addons/*/bin/*.lib demo/addons/*/bin/*.pdb > /dev/null 2>&1; then
+          echo "::error::linker by-products are still next to the DLLs"
+          exit 1
+        fi
+        ls -l demo/addons/*/bin/

@@ -1,0 +1,61 @@
+name: Build Extension - Windows
+
+on:
+  workflow_call:
+    inputs:
+      git-base-ref:
+        type: string
+        default: 'main'
+      # A JSON array. x86_64 by default: plugin hosts and the
+      # plugins themselves are 64-bit on Windows, and a 32-bit Godot cannot load 64-bit plugins.
+      arches:
+        type: string
+        default: '[ "x86_64" ]'
+
+concurrency:
+  group: build-${{ github.ref }}-windows
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(inputs.arches) }}
+
+    name: Compile and upload Windows (${{ matrix.arch }})
+    runs-on: windows-latest
+    env:
+      GIT_BASE_REF: ${{ inputs.git-base-ref }}
+      SCONS_PLATFORM: windows
+      SCONS_PLATFORM_SUFFIX: ".${{ matrix.arch }}"
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Set up build cache
+        uses: ./.github/actions/setup-cache
+        continue-on-error: true
+
+      - name: Install build dependencies
+        uses: ./.github/actions/install-deps
+
+      - name: Setup MSVC problem matcher
+        uses: ammaraskar/msvc-problem-matcher@master
+
+      - name: Build (release, ${{ matrix.arch }})
+        uses: ./.github/actions/build-extension
+        with:
+          target: template_release
+          sconsflags: arch=${{ matrix.arch }}
+
+      - name: Build (debug, ${{ matrix.arch }})
+        uses: ./.github/actions/build-extension
+        with:
+          target: template_debug
+          sconsflags: arch=${{ matrix.arch }}
+
+      - name: Upload
+        uses: ./.github/actions/upload-extension

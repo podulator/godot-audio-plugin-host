@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="Vst3SidechainSend" inherits="AudioEffect" api_type="extension" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Sends a bus's audio to the sidechain input of Vst3PluginEffect plugins.
+	</brief_description>
+	<description>
+		Put this on the bus whose sound should drive a plugin's sidechain: a ducking compressor's key input, or a vocoder's carrier, for example. It passes its bus through unchanged, and copies each block of audio into the channel named [member channel]. Any [Vst3PluginEffect] whose [member Vst3PluginEffect.sidechain] has the same name then hears it on its second input.
+		[codeblock]
+		var send = Vst3SidechainSend.new()
+		send.channel = "kick"
+		AudioServer.add_bus_effect(AudioServer.get_bus_index("Drums"), send)
+
+		compressor.sidechain = "kick" # A Vst3PluginEffect on another bus.
+		[/codeblock]
+		When the source bus falls silent and Godot stops processing it, the sidechain falls silent too.
+		[b]Note:[/b] Godot processes buses from the highest index down. If this send's bus has a higher index than the plugin's bus, the plugin hears the same audio block; otherwise one block (about 11.6 ms at 44.1 kHz) later.
+		VST is a registered trademark of Steinberg Media Technologies GmbH.
+		[b]Note:[/b] Only [Vst3PluginEffect] effects hear this send. A bus that drives both formats needs a Vst3SidechainSend and a ClapSidechainSend, each with the channel name.
+		[b]Note:[/b] On a surround bus, only the front left and right channels are sent. Use one send per channel name: the same send on two buses would mix two buses' blocks into one channel.
+	</description>
+	<tutorials>
+	</tutorials>
+	<members>
+		<member name="channel" type="String" setter="set_channel" getter="get_channel" default="&quot;&quot;">
+			The channel's name, matched against [member Vst3PluginEffect.sidechain]. Changing it applies at once, to running instances too. Empty sends nothing.
+		</member>
+	</members>
+</class>

@@ -1,0 +1,13 @@
+[configuration]
+
+entry_symbol = "clap_host_library_init"
+compatibility_minimum = "4.5"
+
+[libraries]
+
+linux.debug.x86_64 = "res://addons/clap_host/bin/libclap_host.linux.template_debug.x86_64.so"
+linux.release.x86_64 = "res://addons/clap_host/bin/libclap_host.linux.template_release.x86_64.so"
+windows.debug.x86_64 = "res://addons/clap_host/bin/libclap_host.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "res://addons/clap_host/bin/libclap_host.windows.template_release.x86_64.dll"
+macos.debug = "res://addons/clap_host/bin/libclap_host.macos.template_debug.framework"
+macos.release = "res://addons/clap_host/bin/libclap_host.macos.template_release.framework"

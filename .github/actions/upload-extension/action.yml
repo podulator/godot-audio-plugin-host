@@ -1,0 +1,13 @@
+name: Upload the addons
+description: Uploads both addon folders (binaries and .gdextension files) for one platform.
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/upload-artifact@v7
+      with:
+        name: addons-${{ env.SCONS_PLATFORM }}${{ env.SCONS_PLATFORM_SUFFIX }}
+        path: |
+          demo/addons/clap_host/
+          demo/addons/vst3_host/
+        retention-days: 14
