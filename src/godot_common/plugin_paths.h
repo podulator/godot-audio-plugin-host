@@ -153,9 +153,31 @@ inline String portable_path(const std::string &p_real, const std::vector<std::st
 //   absolute and present -> as is;  res:// or user:// -> globalised;
 //   relative             -> the first search folder that has it;
 //   absolute but missing -> its file name, looked up the same way (scenes from another machine).
+// True in an exported Android game. Android only runs native code that came inside the APK (from
+// Android 10 on, code in any folder the app can write to is refused), so plugins are not files
+// to look for there: the export put each one in the APK as a native library (export_copy.h), and
+// it is loaded BY NAME, the way Android loads an app's own libraries.
+inline bool is_android_game() {
+	return is_exported_game() && OS::get_singleton()->has_feature("android");
+}
+
+// The name a plugin has inside an Android APK: lib<name>.so, from a stored "<name>.clap" (a
+// folder in front, as from a subfolder of bin/clap, is dropped: the APK's library folder is flat).
+// A name already of that form is kept.
+inline std::string android_library_name(const String &p_stored) {
+	const String file = p_stored.get_file();
+	if (file.begins_with("lib") && file.ends_with(".so")) {
+		return to_std(file);
+	}
+	return to_std(String("lib") + file.get_basename() + ".so");
+}
+
 inline std::string resolve_plugin_path(const String &p_stored, const std::vector<std::string> &p_dirs) {
 	if (p_stored.is_empty()) {
 		return "";
+	}
+	if (is_android_game()) {
+		return android_library_name(p_stored); // a bare name: the system loader finds it in the APK
 	}
 	String stored = p_stored;
 	if (stored.begins_with("res://") || stored.begins_with("user://")) {

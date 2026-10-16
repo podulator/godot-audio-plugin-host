@@ -155,6 +155,10 @@ else:
 
 
 
+# Android: CLAP only. The VST 3 SDK does not support Android, and there are no VST 3 plugins for it.
+if env["platform"] == "android":
+    Return()
+
 library_vst3 = build_extension(
     "vst3_host",
     ["src/vst3"],

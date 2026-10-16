@@ -24,7 +24,9 @@
 // header shows only an opaque Impl (the "pimpl" pattern) and keeps every X11 type inside
 // x11_window.cpp, the one file that includes Xlib.
 
-#if defined(__linux__) || defined(__FreeBSD__)
+// Not on Android: it defines __linux__ too, but has no X11 (and no plugin windows: they are an
+// editor feature, and there is no Godot editor build hosting plugins on Android).
+#if (defined(__linux__) || defined(__FreeBSD__)) && !defined(__ANDROID__)
 #define GAPH_HAS_X11 1
 
 #include <cstdint>

@@ -90,6 +90,43 @@ inline void export_plugin_folders(const String &p_format, const String &p_export
 		EditorExportPlugin *p_exporter) {
 	ProjectSettings *ps = ProjectSettings::get_singleton();
 	const PackedStringArray listed = ps->get_setting(setting_name(p_format, "search_paths"), PackedStringArray());
+	if (p_features.has("android")) {
+		// Android (CLAP only): the plugins go INSIDE the APK as native libraries, the only place
+		// Android runs code from, and the game loads them by name (plugin_paths.h). Godot's
+		// exporter puts each shared object in lib/<abi>/, the ABI taken from its tag. Plugins for
+		// Android sit in <search folder>/android/<abi>/, e.g. res://bin/clap/android/arm64-v8a/
+		// libnocoder.so beside res://bin/clap/nocoder.clap, and must be named lib<name>.so.
+		static const char *ABIS[] = { "arm64-v8a", "x86_64", "armeabi-v7a", "x86" };
+		int added = 0;
+		for (const String &d : listed) {
+			if (!d.begins_with("res://")) {
+				continue;
+			}
+			for (const char *abi : ABIS) {
+				const String folder = d.path_join("android").path_join(abi);
+				Ref<DirAccess> dir = DirAccess::open(folder);
+				if (dir.is_null()) {
+					continue;
+				}
+				for (const String &f : dir->get_files()) {
+					if (!f.ends_with(".so")) {
+						continue;
+					}
+					if (!f.begins_with("lib")) {
+						UtilityFunctions::push_warning(p_format.to_upper(), " plugins: ", folder.path_join(f),
+								" left out of the Android export: Android libraries must be named lib<name>.so");
+						continue;
+					}
+					p_exporter->add_shared_object(folder.path_join(f), PackedStringArray({ String(abi) }), "");
+					added++;
+				}
+			}
+		}
+		if (added > 0) {
+			UtilityFunctions::print(p_format.to_upper(), " plugins: ", added, " Android libraries going into the APK");
+		}
+		return;
+	}
 	if (p_features.has("macos")) {
 		PackedStringArray bundles, skipped;
 		for (const String &d : listed) {

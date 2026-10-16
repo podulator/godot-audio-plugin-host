@@ -25,8 +25,12 @@ static std::map<std::string, std::weak_ptr<ClapLibrary>> &library_cache() {
 std::shared_ptr<ClapLibrary> ClapLibrary::open(const std::string &p_path, std::string &r_error) {
 	// Canonicalise the path (resolve symlinks, "..", and so on), so two spellings of the same
 	// file share one cache entry. The error_code overload reports problems instead of throwing.
+	// A bare file name ("libnocoder.so", no folder) is a library the system loader finds by
+	// itself: Android's way for the native libraries inside an APK (plugin_paths.h). It must reach
+	// dlopen unchanged; made "canonical" it would become a path in the current folder.
+	const bool by_name = p_path.find('/') == std::string::npos && p_path.find('\\') == std::string::npos;
 	std::error_code ec;
-	std::string key = fs::weakly_canonical(fs::path(p_path), ec).string();
+	std::string key = by_name ? p_path : fs::weakly_canonical(fs::path(p_path), ec).string();
 	if (ec || key.empty()) {
 		key = p_path;
 	}
