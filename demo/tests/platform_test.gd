@@ -111,15 +111,26 @@ func _clap(name: String) -> ClapPluginEffect:
 	return fx
 
 
-func _vst3(name: String) -> Vst3PluginEffect:
-	var fx := Vst3PluginEffect.new()
+# By class name rather than Vst3PluginEffect.new(): on Android there is no VST3 extension, and a
+# script naming a class that does not exist would not even load.
+func _vst3(name: String) -> AudioEffect:
+	var fx: AudioEffect = ClassDB.instantiate("Vst3PluginEffect")
 	fx.plugin_path = name # relative: found in res://bin/vst3
 	fx.is_plugin_loaded()
 	return fx
 
 
+func _has_vst3() -> bool:
+	return ClassDB.class_exists("Vst3PluginEffect")
+
+
 func _test_loading() -> void:
-	for fx in [_clap("gaph_test.clap"), _clap("clap_gain.clap"), _vst3("vst3_gain.vst3")]:
+	var effects: Array = [_clap("gaph_test.clap"), _clap("clap_gain.clap")]
+	if _has_vst3():
+		effects.append(_vst3("vst3_gain.vst3"))
+	else:
+		_log("INFO  no VST3 extension on %s: CLAP only" % OS.get_name())
+	for fx in effects:
 		_check(fx.is_plugin_loaded(), "%s loads by relative name from res://bin (%s)" % [fx.plugin_path, fx.get_load_error()])
 	await get_tree().process_frame
 
@@ -129,8 +140,9 @@ func _test_gain_and_timing() -> void:
 	var rate := AudioServer.get_mix_rate()
 	var cases := [
 		["clap", _clap("gaph_test.clap"), GAIN_CLAP, 0.5, 0.0, 1.0], # format, fx, id, half, zero, unity
-		["vst3", _vst3("vst3_gain.vst3"), 0, 0.25, 0.0, 0.5],
 	]
+	if _has_vst3():
+		cases.append(["vst3", _vst3("vst3_gain.vst3"), 0, 0.25, 0.0, 0.5])
 	for c in cases:
 		var fx: AudioEffect = c[1]
 		var b := _bus("Gain_" + c[0], [fx])
@@ -227,5 +239,5 @@ func _test_menu() -> void:
 	if OS.get_environment("GAPH_MENU_CLASSES").is_empty():
 		_log("SKIP  menu classes: run with GAPH_MENU_CLASSES=1")
 		return
-	for c in ["Clap_GAPHTestPlugin", "Clap_ExampleGain", "Vst3_ExampleGain"]:
+	for c in ["Clap_GAPHTestPlugin", "Clap_ExampleGain"] + (["Vst3_ExampleGain"] if _has_vst3() else []):
 		_check(ClassDB.class_exists(c), "Add Effect menu class %s is registered" % c)
