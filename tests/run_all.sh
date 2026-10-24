@@ -54,6 +54,12 @@ echo "[platform test: our own plugins, both formats, as on every CI runner]"
 "$root/tests/platform/run.sh" | grep -E "^(PASS|FAIL|SKIP|PLATFORM)"
 echo "[export: macOS app layout, assembled on this machine]"
 "$root/tests/export/macos.sh" | grep -E "^(PASS|FAIL|SKIP|MACOS)"
+# Android: only with an Android SDK and a device or emulator connected (tests/android/run.sh).
+if [ -n "$ANDROID_HOME" ] && adb get-state > /dev/null 2>&1; then
+	(set -o pipefail; "$root/tests/android/run.sh" | grep -E "^(\[android|PASS|FAIL|SKIP|INFO|ANDROID)")
+else
+	echo "SKIP  Android: needs ANDROID_HOME and a device or emulator (adb)"
+fi
 echo "[export, end to end: debug]"
 "$root/tests/export/run.sh"
 echo "[export, end to end: release]"

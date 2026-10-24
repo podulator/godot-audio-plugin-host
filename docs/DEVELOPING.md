@@ -24,6 +24,7 @@ The libraries are written straight into `demo/addons/clap_host/bin/` and `demo/a
 | Linux | GCC or Clang, the X11 headers (`libx11-dev`) | libX11 itself is loaded only when a plugin window opens, so the libraries run without it |
 | Windows | MSVC (Visual Studio 2022) or MinGW | `platform=windows`; MSVC is what CI uses |
 | macOS | Xcode's command-line tools | universal (arm64 + x86_64); the oldest macOS is `macos_deployment_target`, default 10.15 |
+| Android | the Android NDK (r30, `ndk_version=30.0.16248370`), with `ANDROID_HOME` set | `platform=android arch=arm64` and `arch=x86_64`; CLAP only, and `vst3_host` gets an empty extension so Godot does not report a missing library |
 
 `VERSION` holds the release version; the build writes it into each macOS framework's `Resources/Info.plist`.
 
@@ -48,6 +49,7 @@ runs everything that can run on this machine, and needs Godot (4.5 or later) on 
 | `tests/export/` | a real Linux export (debug and release) loading its plugin, and a macOS app assembled on Linux |
 | `tests/windows/` | plugin windows on Windows: under Wine on Linux (nothing shows on screen), natively on Windows |
 | `tests/macos/` | plugin windows on macOS (macOS only) |
+| `tests/android/` | the platform test (CLAP) in a real Android export on a device or emulator; needs `ANDROID_HOME` with build-tools, a JDK and Godot's Android export templates, and skips without a device (`ANDROID_SERIAL` picks one when several are connected) |
 | `tests/scan_guard/` | a plugin that crashes the editor while it is scanned, and the editor surviving it |
 | editor probes | a real (headless) editor: the Add Effect menu, plugin windows opening on click, the help pages |
 
@@ -65,13 +67,14 @@ Two tests depend on timing. Run them on an idle machine: a Godot build alongside
 One reusable workflow per platform, and **Build all platforms** as the entry point. Ordinary pushes run nothing: on a private repository, macOS minutes cost ten times as much as Linux ones, and Windows twice. It runs in two ways:
 
 - **By hand** (Actions > Build all platforms > Run workflow), with a checkbox per job, so a Linux-only run costs one Linux job. The result is a run artifact.
-- **On a version tag** (`v*`): everything, and a release. The tag must match `VERSION`, which is checked first, so a mistyped tag costs one Linux minute rather than a macOS build. Then all three platforms are built, the full suite runs on Linux and the platform tests on Windows and macOS, and if all of that passes, a **draft** GitHub release is created with `godot-audio-plugin-host-<tag>.zip`, to check and publish by hand. A tag with a hyphen (`v1.0.0-beta`) is marked pre-release. macOS is signed with the Developer ID only if the repository variable `MACOS_CODESIGN` is `true`.
+- **On a version tag** (`v*`): everything, and a release. The tag must match `VERSION`, which is checked first, so a mistyped tag costs one Linux minute rather than a macOS build. Then all four platforms are built, the full suite runs on Linux and the platform tests on Windows and macOS, and if all of that passes, a **draft** GitHub release is created with `godot-audio-plugin-host-<tag>.zip`, to check and publish by hand. A tag with a hyphen (`v1.0.0-beta`) is marked pre-release. macOS is signed with the Developer ID only if the repository variable `MACOS_CODESIGN` is `true`.
 
 To release: set `VERSION`, commit, then `git tag v$(cat VERSION) && git push origin v$(cat VERSION)`.
 
 | checkbox | runner | does |
 | --- | --- | --- |
 | Linux, Windows, macOS | ubuntu-22.04, windows-latest (MSVC), macos-latest | build `template_release` and `template_debug` |
+| Android | ubuntu-24.04 | the same for arm64 and x86_64, with NDK r30, and checks that every library allows 16 KB pages |
 | Run the full test suite on Linux | ubuntu-22.04 | `tests/run_all.sh` against Godot 4.5.0, the oldest version supported, with export templates |
 | Platform test on Linux / Windows / macOS | each OS | `tests/platform/run.sh`, plus the plugin-window tests on Windows and macOS |
 | macOS: sign with the Developer ID and notarise | macos-latest | see below |
@@ -99,6 +102,7 @@ and merge the new entries from `/tmp/docs/doc_classes/` into `doc_classes/`.
 | `src/core/` | plain C++, compiled into both libraries, no Godot: effect runtime, lock-free queue, parameter timing (`block_clock.h`), sidechain channels, run loop, and the plugin windows (X11, Win32, Cocoa: `native_window.h`) |
 | `src/godot_common/` | Godot glue both libraries compile in, as functions and helpers rather than shared classes: parameter properties, Add Effect menu classes, plugin folders, export, scan guard, editor window |
 | `src/clap/`, `src/vst3/` | each format's host, Godot classes, editor plugin and entry point |
+| `src/vst3_android/` | the empty `vst3_host` extension for Android |
 | `doc_classes/` | the class reference, one XML file per class |
 | `examples/` | the smallest gain plugin in each format, also used by the tests |
 | `vst3_sdk_sources.txt` | the VST3 SDK files compiled in; read by SConstruct and the tests |

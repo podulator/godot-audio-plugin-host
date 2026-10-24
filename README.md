@@ -19,15 +19,16 @@ Each addon works on its own, and both can be used in one project.
 ## Requirements
 
 - **Godot 4.5 or later** (tested with 4.5, 4.6 and 4.7).
-- One of these platforms. The libraries for all three ship in each addon.
+- One of these platforms. The libraries for all of them ship in the addons.
 
 | platform | architectures | plugin windows (editor) |
 | --- | --- | --- |
 | Linux | x86_64 (glibc 2.35 or later) | X11, and XWayland on Wayland desktops |
 | Windows | x86_64 | yes |
 | macOS | universal (Apple silicon and Intel), macOS 10.15 or later | yes |
+| Android | arm64 and x86_64, Android 7 (API 24) or later; **CLAP only**, tested with Godot 4.7 | no (exported games only) |
 
-Web and Android are not supported: hosting means loading native plugin binaries, which a browser cannot, and Android has no CLAP or VST3 plugins (that I am aware of).
+Android has no VST3 plugins, so it has no VST3 host either: the `vst3_host` addon is empty there, and `Vst3PluginEffect` does not exist in an Android game. Web is not supported: hosting means loading native plugin binaries, which a browser cannot.
 
 ## Installing
 
@@ -35,11 +36,7 @@ Web and Android are not supported: hosting means loading native plugin binaries,
 2. Copy its `addons/clap_host` and/or `addons/vst3_host` into your project's `addons/` folder.
 3. Restart the editor. GDExtensions load by themselves; there is nothing to enable under Project Settings > Plugins.
 
-On **macOS**, a build that is not notarised (see [Developing](https://github.com/podulator/godot-audio-plugin-host/blob/main/docs/DEVELOPING.md)) is blocked as downloaded from the internet. Clear the flag once, from the project folder:
-
-```sh
-xattr -dr com.apple.quarantine addons/clap_host addons/vst3_host
-```
+On macOS, clear the download flag once: see [Platform notes](#macos).
 
 To build from source instead, see [docs/DEVELOPING.md](https://github.com/podulator/godot-audio-plugin-host/blob/main/docs/DEVELOPING.md).
 
@@ -140,6 +137,7 @@ Put the plugins in `res://bin/clap` and `res://bin/vst3` (or any `res://` folder
 | --- | --- |
 | Linux, Windows | `bin/clap` and `bin/vst3` next to the game's executable |
 | macOS | inside the app, in `<game>.app/Contents/PlugIns/` |
+| Android | inside the APK, as native libraries (see [Android](#android)) |
 
 Ship the build of each plugin for the platform you export to. On macOS every CLAP and VST3 plugin is a bundle folder, so a single-file `.clap` (a Linux or Windows build) is left out of a macOS export, and the export log says so.
 
@@ -149,6 +147,18 @@ Two things from Godot's macOS exporter (4.5 to 4.7), not from this addon:
 
 - It adds a `Resources/Info.plist` to each plugin bundle and warns "Info.plist missing or invalid". The plugin loads as before.
 - It does not sign plugins. If the export is code-signed, ship plugins that are already signed, as vendors' plugins are; an unsigned one makes signing the app fail.
+
+### Android
+
+Android runs native code only from inside the app, so an Android plugin is a shared library that the export puts into the APK. Put each plugin's Android builds in an `android/<abi>/` folder inside a plugin folder, named `lib<name>.so`, next to the desktop `.clap`:
+
+```text
+res://bin/clap/la2a.clap                              desktop
+res://bin/clap/android/arm64-v8a/libla2a.so           phones and tablets
+res://bin/clap/android/x86_64/libla2a.so              the emulator
+```
+
+Scenes need no changes: an effect that uses `la2a.clap` loads `libla2a.so` in the Android game. See also the [Android platform notes](#android-1).
 
 ## Plugin windows
 
@@ -163,6 +173,22 @@ Clicking a plugin effect in the editor opens the plugin's own interface, in a wi
 Plugin windows exist in the editor only, never in an exported game. A plugin that offers no interface has none: its parameters are still in the inspector.
 
 Plugin windows on Windows and macOS are new in this release, and tested in CI with our own test plugins rather than yet with a wide range of commercial ones. Reports of plugins that misbehave are very welcome !!
+
+## Platform notes
+
+### macOS
+
+A build that is not notarised (see [Developing](https://github.com/podulator/godot-audio-plugin-host/blob/main/docs/DEVELOPING.md)) is blocked as downloaded from the internet. Clear the flag once, from the project folder:
+
+```sh
+xattr -dr com.apple.quarantine addons/clap_host addons/vst3_host
+```
+
+### Android
+
+**At most about 15 plugin libraries per game.** Android gives each app only 128 thread-local keys. Plugins written in Rust (nice-plug, nih-plug) use about 7 per library and never give them back, so after roughly 15 libraries the next one cannot start, and the whole game would abort. The host checks before loading a library, and refuses it with a clear `get_load_error()` instead.
+
+**Workaround:** put several plugins into one CLAP library, which counts once however many plugins it holds. Ship the same bundle on every platform, so a scene refers to the same file and plugin id everywhere.
 
 ## Limitations
 
@@ -184,7 +210,7 @@ Plugin windows on Windows and macOS are new in this release, and tested in CI wi
 
 **The plugin window does not open.** Plugin windows are available in the editor only, and only for enabled effects. On Linux they need an X server; on a Wayland desktop that is XWayland, which most desktops run by default.
 
-**macOS says the library is damaged or cannot be checked.** The quarantine flag: see [Installing](#installing).
+**macOS says the library is damaged or cannot be checked.** The quarantine flag: see [Platform notes](#macos).
 
 ## Known issues in Godot
 
