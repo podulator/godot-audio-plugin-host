@@ -3,7 +3,9 @@
 # Godot scenes. They use this repository's own plugins (examples/, tests/plugins/), built first;
 # tests for third-party plugins (Dragonfly Reverb, OneTrick URCHIN) skip themselves when those are
 # not installed. Stops at the first failing suite.
-set -e
+# pipefail: most suites are piped through grep for their summary lines, and without it a failing
+# suite would only print FAIL, while the run still ended with exit code 0.
+set -eo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
 # No test may open a window on the user's real screen (GUI pop-ups that steal
@@ -56,7 +58,7 @@ echo "[export: macOS app layout, assembled on this machine]"
 "$root/tests/export/macos.sh" | grep -E "^(PASS|FAIL|SKIP|MACOS)"
 # Android: only with an Android SDK and a device or emulator connected (tests/android/run.sh).
 if [ -n "$ANDROID_HOME" ] && adb get-state > /dev/null 2>&1; then
-	(set -o pipefail; "$root/tests/android/run.sh" | grep -E "^(\[android|PASS|FAIL|SKIP|INFO|ANDROID)")
+	"$root/tests/android/run.sh" | grep -E "^(\[android|PASS|FAIL|SKIP|INFO|ANDROID)"
 else
 	echo "SKIP  Android: needs ANDROID_HOME and a device or emulator (adb)"
 fi
@@ -66,7 +68,8 @@ echo "[export, end to end: release]"
 "$root/.venv/bin/scons" -C "$root" platform=linux target=template_release -j"$(nproc)" -Q > /dev/null
 EXPORT_MODE=release "$root/tests/export/run.sh"
 echo "[real editor: Add Effect menu]"
-menu=$("$root/tests/editor_probe.sh" res://tests/menu_probe.gd CLAP_PATH="$own" GAPH_VST3_PATH="$own" | grep MENUPROBE)
+# "|| true" on these captures: an empty result is reported by the check after each, with a message.
+menu=$("$root/tests/editor_probe.sh" res://tests/menu_probe.gd CLAP_PATH="$own" GAPH_VST3_PATH="$own" | grep MENUPROBE || true)
 if [[ "$menu" == *"ClapSidechainSend"* && "$menu" != *"ClapPluginEffect"* && "$menu" != *"Vst3PluginEffect"* ]]; then
 	echo "MENU OK: generic effects hidden, sends listed"
 else
@@ -74,7 +77,7 @@ else
 	exit 1
 fi
 echo "[real editor: a click on the enable checkbox doesn't open the window]"
-probe=$("$root/tests/editor_probe.sh" res://tests/toggle_probe.gd -u DISPLAY | grep -E "TOGGLEPROBE (A|B|C) (begin|end)|TOGGLEPROBE SKIP|cannot open the plugin window")
+probe=$("$root/tests/editor_probe.sh" res://tests/toggle_probe.gd -u DISPLAY | grep -E "TOGGLEPROBE (A|B|C) (begin|end)|TOGGLEPROBE SKIP|cannot open the plugin window" || true)
 # "|| true": grep -c exits 1 when it counts zero, which is the expected answer for B, and
 # set -e would otherwise end the whole run there.
 a=$(echo "$probe" | sed -n '/A begin/,/A end/p' | grep -c "cannot open" || true)
@@ -90,7 +93,7 @@ else
 	exit 1
 fi
 echo "[real editor: the class reference (F1) shows our docs]"
-docs=$("$root/tests/editor_probe.sh" res://tests/docs_probe.gd | grep DOCSPROBE)
+docs=$("$root/tests/editor_probe.sh" res://tests/docs_probe.gd | grep DOCSPROBE || true)
 if [[ "$docs" == *"has   Runs a CLAP"* && "$docs" != *"LACKS"* ]]; then
 	echo "DOCS OK: ClapPluginEffect's help page is complete"
 else
@@ -108,7 +111,7 @@ docs_ok=1
 for f in "$root"/doc_classes/*.xml; do
 	if ! diff -q <(strip_api_type "$f") <(strip_api_type "$tmp/doccheck/doc_classes/$(basename "$f")") > /dev/null; then
 		docs_ok=0
-		diff <(strip_api_type "$f") <(strip_api_type "$tmp/doccheck/doc_classes/$(basename "$f")") | head -20
+		diff <(strip_api_type "$f") <(strip_api_type "$tmp/doccheck/doc_classes/$(basename "$f")") | head -20 || true
 	fi
 done
 if [ $docs_ok -eq 1 ] && [ "$(ls "$tmp/doccheck/doc_classes" | wc -l)" -eq "$(ls "$root"/doc_classes | wc -l)" ]; then

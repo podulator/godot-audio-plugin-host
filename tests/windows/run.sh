@@ -49,8 +49,17 @@ if [ $native = 1 ]; then
 	plugin="$(cygpath -w "$tmp/gaph_test.clap")"
 	vst3="$(cygpath -w "$tmp/gaph_test_vst3.vst3")"
 else
-	export WINEPREFIX="$tmp/wineprefix" WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml="
+	# winemenubuilder.exe=d: Wine would otherwise write file associations for the scratch prefix
+	# into the user's real ~/.local/share/applications (seen 24.10.2026).
+	export WINEPREFIX="$tmp/wineprefix" WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
 	unset DISPLAY WAYLAND_DISPLAY
+	# Wine's invisible "null" display driver, asked for by name: up to Wine 11.19 it was chosen by
+	# itself when there was no display, from 11.20 on no window can be created without this.
+	if [ ! -f "$WINEPREFIX/.gaph-null-driver" ]; then
+		timeout 120 wine reg add 'HKCU\Software\Wine\Drivers' /v Graphics /d null /f > /dev/null 2>&1
+		wineserver -w
+		touch "$WINEPREFIX/.gaph-null-driver"
+	fi
 	run() { timeout 120 wine "$@" 2> /dev/null; }
 	plugin='Z:'"$(echo "$tmp/gaph_test.clap" | tr / '\\')"
 	vst3='Z:'"$(echo "$tmp/gaph_test_vst3.vst3" | tr / '\\')"
