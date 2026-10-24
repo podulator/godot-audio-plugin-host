@@ -14,9 +14,13 @@ ARGUMENTS.setdefault("macos_deployment_target", "10.15")
 env = SConscript("thirdparty/godot-cpp/SConstruct")
 env.Append(CPPPATH=["#src/"])
 
-# One version for everything that carries one (the macOS frameworks' Info.plist, for now): VERSION.
+# One version for everything that carries one: VERSION. It goes into the macOS frameworks'
+# Info.plist, and into the code as GAPH_VERSION_NUMBER (the version the CLAP host tells plugins).
+# Unquoted on purpose: a quoted string survives the compiler command line differently on GCC and
+# MSVC, so the code turns the bare number into a string itself (clap_processor.cpp).
 with open(File("#VERSION").abspath) as f:
     version = f.read().strip()
+env.Append(CPPDEFINES=[("GAPH_VERSION_NUMBER", version)])
 
 
 def macos_info_plist(framework, name):

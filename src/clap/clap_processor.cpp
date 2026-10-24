@@ -5,6 +5,18 @@
 #include <cstdio>
 #include <cstring>
 
+
+// The version from VERSION, which SConstruct passes in as a bare number (1.1.0), made a string
+// here. Two macro steps, because # stringifies its argument as written: the inner one would
+// otherwise give "GAPH_VERSION_NUMBER". Tests that compile this file on their own get "dev".
+#define GAPH_STRINGIFY_(x) #x
+#define GAPH_STRINGIFY(x) GAPH_STRINGIFY_(x)
+#ifdef GAPH_VERSION_NUMBER
+#define GAPH_VERSION GAPH_STRINGIFY(GAPH_VERSION_NUMBER)
+#else
+#define GAPH_VERSION "dev"
+#endif
+
 namespace gaph {
 
 static constexpr uint32_t MAX_IN_EVENTS = 256;
@@ -54,7 +66,7 @@ std::unique_ptr<ClapProcessor> ClapProcessor::create(std::shared_ptr<ClapLibrary
 	p->host.name = "Godot Audio Plugin Host";
 	p->host.vendor = "godot-audio-plugin-host";
 	p->host.url = "";
-	p->host.version = "0.1.0";
+	p->host.version = GAPH_VERSION;
 	p->host.get_extension = host_get_extension;
 	p->host.request_restart = host_request_restart;
 	p->host.request_process = host_request_process;

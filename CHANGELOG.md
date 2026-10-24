@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0 (unreleased)
+## 1.1.0 (2026-10-24)
 
 Android support, for CLAP plugins.
 
@@ -8,6 +8,7 @@ Android support, for CLAP plugins.
 - Android has no VST3 plugins, so it has no VST3 host either. The VST3 addon is empty there, so a project with both addons exports and starts on Android without errors.
 - On Android, a plugin library is refused with a clear load error, rather than allowed to abort the game, when the app's thread-local keys are nearly used up. See [Platform notes](https://github.com/podulator/godot-audio-plugin-host#platform-notes) for the limit and the workaround.
 - The release zip holds only the two addon folders, each with its own README, LICENSE and THIRD_PARTY_NOTICES.md, so installing from the editor keeps them with the addon.
+- The CLAP host tells plugins its real version (it said 0.1.0), taken from `VERSION`.
 
 ## 1.0.0
 
