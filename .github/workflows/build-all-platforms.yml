@@ -6,15 +6,15 @@ name: Build all platforms
 # - By hand (Actions > Build all platforms > Run workflow): each job is a checkbox, so a Linux-only
 #   run costs one Linux job. The result is a run artifact; no release.
 # - A version tag (v*, e.g. v1.0.0): everything. The tag must match VERSION (checked first, before
-#   any minutes go on macOS). All three platforms built, the full suite on Linux, the platform tests
+#   any minutes go on macOS). All four platforms built, the full suite on Linux, the platform tests
 #   (with the plugin-window tests) on Windows and macOS, then a DRAFT GitHub release with the
 #   installable zip, to check and publish by hand. Tags with a hyphen (v1.0.0-beta) are marked
 #   pre-release. macOS is signed with the Developer ID and notarised only if the repository
 #   variable MACOS_CODESIGN is "true" (docs/macos-signing.md); otherwise ad hoc.
 #
-# Linux, Windows and macOS only. Web and Android are not missing by accident: hosting a plugin
-# means loading a native CLAP or VST3 binary, which WebAssembly cannot do, and Android has no
-# plugins in either format to load.
+# Linux, Windows, macOS, and Android with CLAP only (arm64 and x86_64; there are no VST3 plugins for
+# Android). Web is not missing by accident: hosting a plugin means loading a native binary, which
+# WebAssembly cannot do.
 #
 # Platform tests (Linux, Windows, macOS): tests/platform/run.sh on that OS, with plugins built from
 # this repository, so hosting is shown working there without anyone needing that machine.
@@ -38,6 +38,10 @@ on:
         description: 'macOS universal (billed at 10x; signed ad hoc)'
         type: boolean
         default: false
+      android:
+        description: 'Android arm64 and x86_64 (CLAP only)'
+        type: boolean
+        default: true
       macos_codesign:
         description: 'macOS: sign with the Developer ID and notarise (needs the Apple secrets)'
         type: boolean
@@ -112,6 +116,13 @@ jobs:
     # The Apple secrets, when signing: a reusable workflow sees only the secrets passed to it.
     secrets: inherit
 
+  android:
+    needs: version
+    if: ${{ inputs.android || github.event_name == 'push' }}
+    uses: ./.github/workflows/extension-build-android.yml
+    with:
+      git-base-ref: ${{ github.ref_name }}
+
   tests:
     needs: version
     if: ${{ inputs.tests || github.event_name == 'push' }}
@@ -145,10 +156,10 @@ jobs:
       platform: macos
 
   # Every platform's addons/ merged into one installable artifact. By hand: if at least one build
-  # succeeded (a platform not ticked contributes nothing). On a tag: only if all three did.
+  # succeeded (a platform not ticked contributes nothing). On a tag: only if all four did.
   package:
-    needs: [ linux, windows, macos ]
-    if: ${{ !cancelled() && ((github.event_name == 'push' && needs.linux.result == 'success' && needs.windows.result == 'success' && needs.macos.result == 'success') || (github.event_name != 'push' && (needs.linux.result == 'success' || needs.windows.result == 'success' || needs.macos.result == 'success'))) }}
+    needs: [ linux, windows, macos, android ]
+    if: ${{ !cancelled() && ((github.event_name == 'push' && needs.linux.result == 'success' && needs.windows.result == 'success' && needs.macos.result == 'success' && needs.android.result == 'success') || (github.event_name != 'push' && (needs.linux.result == 'success' || needs.windows.result == 'success' || needs.macos.result == 'success' || needs.android.result == 'success'))) }}
     name: Package the addons
     runs-on: ubuntu-24.04
     steps:
@@ -218,4 +229,4 @@ jobs:
           fi
           gh release create "$GITHUB_REF_NAME" "$zip_name" --repo "$GITHUB_REPOSITORY" \
             --draft "${prerelease[@]}" --title "$GITHUB_REF_NAME" \
-            --notes "Built from $GITHUB_SHA: Linux x86_64, Windows x86_64 and macOS universal libraries for both addons (clap_host, vst3_host), Godot 4.5 or later. Copy addons/clap_host and/or addons/vst3_host into your project's addons/ folder; see README.md inside. $mac"
+            --notes "Built from $GITHUB_SHA: Linux x86_64, Windows x86_64 and macOS universal libraries for both addons (clap_host, vst3_host), and Android arm64 and x86_64 for clap_host, Godot 4.5 or later. Copy addons/clap_host and/or addons/vst3_host into your project's addons/ folder; see README.md inside. $mac"

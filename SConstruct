@@ -156,7 +156,15 @@ else:
 
 
 # Android: CLAP only. The VST 3 SDK does not support Android, and there are no VST 3 plugins for it.
+# vst3_host gets an empty extension instead (src/vst3_android/stub.c says why).
 if env["platform"] == "android":
+    stub_env = env.Clone()
+    stub_env.Append(CPPPATH=["#thirdparty/godot-cpp/gdextension"])
+    stub = stub_env.SharedLibrary(
+        "demo/addons/vst3_host/bin/libvst3_host{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
+        source=[stub_env.SharedObject("build/vst3_host/{}.{}.{}/stub".format(env["platform"], env["target"], env["arch"]), "src/vst3_android/stub.c")],
+    )
+    Default(stub)
     Return()
 
 library_vst3 = build_extension(

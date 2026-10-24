@@ -1,0 +1,88 @@
+name: Build Extension - Android
+
+on:
+  workflow_call:
+    inputs:
+      git-base-ref:
+        type: string
+        default: 'main'
+
+concurrency:
+  group: build-${{ github.ref }}-android
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Compile and upload Android (arm64, x86_64)
+    # CLAP only: SConstruct builds no VST3 host for Android (no VST3 plugins exist there).
+    runs-on: ubuntu-24.04
+    env:
+      GIT_BASE_REF: ${{ inputs.git-base-ref }}
+      SCONS_PLATFORM: android
+      # The NDK the extension is built and tested with: API 24, 16 KB pages.
+      NDK_VERSION: 30.0.16248370
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Set up build cache
+        uses: ./.github/actions/setup-cache
+        continue-on-error: true
+
+      - name: Install build dependencies
+        uses: ./.github/actions/install-deps
+
+      # The runner image has the Android SDK (ANDROID_HOME) but not necessarily this NDK.
+      - name: Install the NDK
+        shell: bash
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" "ndk;$NDK_VERSION" > /dev/null
+          ls "$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/"
+
+      - name: Setup GCC problem matcher
+        uses: ammaraskar/gcc-problem-matcher@master
+
+      - name: Build arm64 (release)
+        uses: ./.github/actions/build-extension
+        with:
+          target: template_release
+          sconsflags: arch=arm64 ndk_version=${{ env.NDK_VERSION }}
+
+      - name: Build arm64 (debug)
+        uses: ./.github/actions/build-extension
+        with:
+          target: template_debug
+          sconsflags: arch=arm64 ndk_version=${{ env.NDK_VERSION }}
+
+      - name: Build x86_64 (release)
+        uses: ./.github/actions/build-extension
+        with:
+          target: template_release
+          sconsflags: arch=x86_64 ndk_version=${{ env.NDK_VERSION }}
+
+      - name: Build x86_64 (debug)
+        uses: ./.github/actions/build-extension
+        with:
+          target: template_debug
+          sconsflags: arch=x86_64 ndk_version=${{ env.NDK_VERSION }}
+
+      # Every Android library must allow 16 KB pages (Google Play requires it from Android 15
+      # devices on): each LOAD segment aligned to at least 2**14.
+      - name: Check 16 KB page alignment
+        shell: bash
+        run: |
+          readelf="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          for so in demo/addons/clap_host/bin/*.android.*.so; do
+            for align in $("$readelf" -lW "$so" | awk '$1 == "LOAD" { print $NF }'); do
+              if (( align < 16384 )); then
+                echo "::error::$so has a LOAD segment aligned to $align, below 16 KB"
+                exit 1
+              fi
+            done
+            echo "$so: 16 KB aligned"
+          done
+
+      - name: Upload
+        uses: ./.github/actions/upload-extension

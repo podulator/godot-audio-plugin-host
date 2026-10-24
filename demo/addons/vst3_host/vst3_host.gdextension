@@ -11,3 +11,7 @@ windows.debug.x86_64 = "res://addons/vst3_host/bin/libvst3_host.windows.template
 windows.release.x86_64 = "res://addons/vst3_host/bin/libvst3_host.windows.template_release.x86_64.dll"
 macos.debug = "res://addons/vst3_host/bin/libvst3_host.macos.template_debug.framework"
 macos.release = "res://addons/vst3_host/bin/libvst3_host.macos.template_release.framework"
+android.debug.arm64 = "res://addons/vst3_host/bin/libvst3_host.android.template_debug.arm64.so"
+android.release.arm64 = "res://addons/vst3_host/bin/libvst3_host.android.template_release.arm64.so"
+android.debug.x86_64 = "res://addons/vst3_host/bin/libvst3_host.android.template_debug.x86_64.so"
+android.release.x86_64 = "res://addons/vst3_host/bin/libvst3_host.android.template_release.x86_64.so"
