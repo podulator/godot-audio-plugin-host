@@ -76,7 +76,7 @@ To release: set `VERSION`, commit, then `git tag v$(cat VERSION) && git push ori
 | Platform test on Linux / Windows / macOS | each OS | `tests/platform/run.sh`, plus the plugin-window tests on Windows and macOS |
 | macOS: sign with the Developer ID and notarise | macos-latest | see below |
 
-The Linux build runs on Ubuntu 22.04 on purpose: a library linked against a newer glibc does not start on an older system. A final job merges every platform's libraries into one artifact, **godot-audio-plugin-host**, holding `addons/clap_host` and `addons/vst3_host` (with `THIRD_PARTY_NOTICES.md` copied into each), ready to unzip into a project. Every job keeps an SCons cache, so a rebuild after a small change is quick.
+The Linux build runs on Ubuntu 22.04 on purpose: a library linked against a newer glibc does not start on an older system. A final job merges every platform's libraries into one artifact, **godot-audio-plugin-host**, holding only `addons/clap_host` and `addons/vst3_host`, each with its own copy of `README.md`, `LICENSE` and `THIRD_PARTY_NOTICES.md` (nothing at the zip's root: the editor's installer extracts only the addon folders), ready to unzip into a project. Every job keeps an SCons cache, so a rebuild after a small change is quick.
 
 ### macOS signing
 

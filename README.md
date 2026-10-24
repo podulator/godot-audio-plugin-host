@@ -1,4 +1,4 @@
-<h1><img src="docs/images/gaph-fla-512.png" alt="Godot Audio Plugin Host icon" width="128" align="absmiddle">&nbsp;Godot Audio Plugin Host</h1>
+<h1><img src="https://raw.githubusercontent.com/podulator/godot-audio-plugin-host/v1.0.0/docs/images/gaph-fla-512.png" alt="Godot Audio Plugin Host icon" width="128" align="absmiddle">&nbsp;Godot Audio Plugin Host</h1>
 
 Run **CLAP** and **VST® 3** audio effect plugins on Godot's audio buses, in the editor and in exported games. Two GDExtensions, one per format:
 
@@ -35,13 +35,13 @@ Web and Android are not supported: hosting means loading native plugin binaries,
 2. Copy its `addons/clap_host` and/or `addons/vst3_host` into your project's `addons/` folder.
 3. Restart the editor. GDExtensions load by themselves; there is nothing to enable under Project Settings > Plugins.
 
-On **macOS**, a build that is not notarised (see [Developing](docs/DEVELOPING.md)) is blocked as downloaded from the internet. Clear the flag once, from the project folder:
+On **macOS**, a build that is not notarised (see [Developing](https://github.com/podulator/godot-audio-plugin-host/blob/main/docs/DEVELOPING.md)) is blocked as downloaded from the internet. Clear the flag once, from the project folder:
 
 ```sh
 xattr -dr com.apple.quarantine addons/clap_host addons/vst3_host
 ```
 
-To build from source instead, see [docs/DEVELOPING.md](docs/DEVELOPING.md).
+To build from source instead, see [docs/DEVELOPING.md](https://github.com/podulator/godot-audio-plugin-host/blob/main/docs/DEVELOPING.md).
 
 ## In the editor
 
@@ -193,7 +193,7 @@ Plugin windows on Windows and macOS are new in this release, and tested in CI wi
 
 ## Licences
 
-<img src="docs/images/VST_Compatible_Logo_Steinberg_with_TM.svg" alt="VST Compatible logo" width="110" align="right" hspace="16">
+<img src="https://raw.githubusercontent.com/podulator/godot-audio-plugin-host/v1.0.0/docs/images/VST_Compatible_Logo_Steinberg_with_TM.svg" alt="VST Compatible logo" width="110" align="right" hspace="16">
 
 - This project: MIT, see [LICENSE](LICENSE).
 - Compiled into the libraries, all MIT licensed: the CLAP headers, godot-cpp and the VST 3 SDK. Their notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), which also ships in each addon folder.
@@ -202,6 +202,6 @@ Plugin windows on Windows and macOS are new in this release, and tested in CI wi
 
 ## Contributing
 
-Building, the tests, CI, the source layout and the design are in [docs/DEVELOPING.md](docs/DEVELOPING.md). The source is commented: each file opens with what it does and why, and the comments explain the threading rules, the plugin formats' lifecycles, and the less common C++.
+Building, the tests, CI, the source layout and the design are in [docs/DEVELOPING.md](https://github.com/podulator/godot-audio-plugin-host/blob/main/docs/DEVELOPING.md). The source is commented: each file opens with what it does and why, and the comments explain the threading rules, the plugin formats' lifecycles, and the less common C++.
 
 Godot Audio Plugin Host is not affiliated with or endorsed by the Godot Foundation.

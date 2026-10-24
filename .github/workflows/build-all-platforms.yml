@@ -161,15 +161,15 @@ jobs:
           path: merged/addons
           merge-multiple: true
 
-      # The repository's LICENSE and THIRD_PARTY_NOTICES.md go into each addon folder as well:
-      # users copy only addons/clap_host and addons/vst3_host into their projects (the Asset
-      # Library way), and the MIT notices of the code compiled into the libraries (CLAP,
-      # godot-cpp, VST 3 SDK) have to travel with them. Copied here rather than kept twice.
+      # The README, LICENSE and THIRD_PARTY_NOTICES.md go into each addon folder, and nowhere else:
+      # users copy only addons/clap_host and addons/vst3_host into their projects (the editor's
+      # Asset Store installer extracts just those), so anything at the zip's root would be left
+      # behind, and the MIT notices of the code compiled into the libraries (CLAP, godot-cpp,
+      # VST 3 SDK) have to travel with the addons. Copied here rather than kept twice.
       - name: Add the docs and licence
         shell: bash
         run: |
-          cp README.md LICENSE THIRD_PARTY_NOTICES.md merged/
-          for addon in merged/addons/*/; do cp LICENSE THIRD_PARTY_NOTICES.md "$addon"; done
+          for addon in merged/addons/*/; do cp README.md LICENSE THIRD_PARTY_NOTICES.md "$addon"; done
           find merged -type f | sort
           # Only libraries, .gdextension files and the notices belong in the zip: no linker
           # by-products from any platform (import libraries, .exp, debug databases).
