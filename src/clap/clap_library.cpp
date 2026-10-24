@@ -6,6 +6,11 @@
 #include <map>
 #include <set>
 
+#ifdef __ANDROID__
+#include <climits>
+#include <pthread.h>
+#endif
+
 namespace gaph {
 
 namespace fs = std::filesystem; // A namespace alias: fs::path instead of std::filesystem::path.
@@ -21,6 +26,29 @@ static std::map<std::string, std::weak_ptr<ClapLibrary>> &library_cache() {
 	static std::map<std::string, std::weak_ptr<ClapLibrary>> cache;
 	return cache;
 }
+
+#ifdef __ANDROID__
+// Android gives an app only PTHREAD_KEYS_MAX (128) thread-local keys, and about 114 are free
+// once Godot and the system have started. Rust code on Android uses one key
+// per thread_local and never gives it back (no native TLS on that target), about 7 per plugin
+// library; when a plugin cannot get one, Rust aborts the whole game without a message. So a new
+// library is only loaded while a safe margin is left: the probe takes up to that many keys and
+// gives them straight back. Keys another thread asks for during those microseconds could fail,
+// which is why the margin is generous rather than exact.
+static constexpr int THREAD_KEYS_NEEDED = 16;
+
+static bool enough_thread_keys() {
+	pthread_key_t keys[THREAD_KEYS_NEEDED];
+	int n = 0;
+	while (n < THREAD_KEYS_NEEDED && pthread_key_create(&keys[n], nullptr) == 0) {
+		n++;
+	}
+	for (int i = 0; i < n; i++) {
+		pthread_key_delete(keys[i]);
+	}
+	return n == THREAD_KEYS_NEEDED;
+}
+#endif
 
 std::shared_ptr<ClapLibrary> ClapLibrary::open(const std::string &p_path, std::string &r_error) {
 	// Canonicalise the path (resolve symlinks, "..", and so on), so two spellings of the same
@@ -38,6 +66,16 @@ std::shared_ptr<ClapLibrary> ClapLibrary::open(const std::string &p_path, std::s
 	if (auto existing = cache[key].lock()) {
 		return existing;
 	}
+
+#ifdef __ANDROID__
+	if (!enough_thread_keys()) {
+		r_error = "Android's limit of " + std::to_string(PTHREAD_KEYS_MAX) +
+				" thread-local keys per app is nearly used up by the plugins already loaded; loading "
+				"another could crash the game. Plugins written in Rust use about 7 each: several "
+				"plugins in one CLAP library share them";
+		return nullptr;
+	}
+#endif
 
 	std::string binary = key;
 #ifdef __APPLE__
