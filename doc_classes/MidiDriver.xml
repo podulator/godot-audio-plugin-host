@@ -234,6 +234,9 @@
 		<member name="bpm" type="float" setter="set_bpm" getter="get_bpm" default="120.0">
 			The tempo, in beats per minute. A change takes effect from now; planned events move with it.
 		</member>
+		<member name="chase_notes" type="bool" setter="set_chase_notes" getter="get_chase_notes" default="false">
+			Off by default, as in most DAWs: [method pause] ends every sounding note. On: the notes it ended start again when the music resumes, the same notes (their [MidiNote] handles stay valid), and each still ends at its planned beat.
+		</member>
 		<member name="lookahead_ms" type="float" setter="set_lookahead_ms" getter="get_lookahead_ms" default="100.0">
 			How far ahead events are handed to targets. Longer copes with longer frame drops; shorter means [method pause], [method seek] and tempo changes take back less.
 		</member>

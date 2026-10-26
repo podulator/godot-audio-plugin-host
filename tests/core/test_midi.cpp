@@ -3,6 +3,7 @@
 #include "core/midi_sequencer.h"
 
 #include <cmath>
+#include <initializer_list>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -275,6 +276,54 @@ static void test_transport_to_targets() {
 	CHECK(rec.transports.back().target == DRUMS && rec.transports.back().info.bpm == 90);
 }
 
+// chase_notes: a note sounding at a pause starts again on resume, the same note (id, velocity),
+// and still ends at its planned beat; a held one starts again and sounds on. Without it, neither
+// starts again.
+static void test_chase_notes() {
+	for (bool chase : { true, false }) {
+		Recorder rec;
+		Sequencer seq(rec);
+		seq.set_channel_target(1, PIANO);
+		seq.set_chase_notes(chase);
+		seq.play(T0);
+		const int64_t long_note = seq.note_on(1, 60, 0x9000, 4.0, Transport::NOW, T0);
+		const int64_t held = seq.note_on(1, 64, 0x7000, 0, Transport::NOW, T0);
+		run(seq, T0, T0 + BEAT);
+		const int64_t pause_at = T0 + BEAT;
+		seq.pause(pause_at);
+		const int64_t resume_at = pause_at + 1000000;
+		seq.play(resume_at);
+		run(seq, resume_at, resume_at + 4 * BEAT);
+		auto on = rec.of(Kind::NOTE_ON);
+		auto off = rec.of(Kind::NOTE_OFF);
+		if (chase) {
+			CHECK(on.size() == 4);
+			if (on.size() == 4) {
+				CHECK(on[2].time_us == resume_at && on[2].event.note_id == long_note && on[2].event.value == 0x9000);
+				CHECK(on[3].time_us == resume_at && on[3].event.note_id == held && on[3].event.value == 0x7000);
+			}
+			// The long note's end: beat 4, 3 beats after the resume (paused at beat 1).
+			CHECK(off.size() == 1 && off[0].event.note_id == long_note && off[0].time_us == resume_at + 3 * BEAT);
+			CHECK(seq.note_state(held) == NoteState::SOUNDING && seq.note_state(long_note) == NoteState::ENDED);
+		} else {
+			CHECK(on.size() == 2 && off.empty());
+			CHECK(seq.note_state(held) == NoteState::ENDED && seq.note_state(long_note) == NoteState::ENDED);
+		}
+	}
+	// A chased note ended while paused is simply forgotten: nothing starts again.
+	Recorder rec;
+	Sequencer seq(rec);
+	seq.set_channel_target(1, PIANO);
+	seq.set_chase_notes(true);
+	seq.play(T0);
+	const int64_t n = seq.note_on(1, 60, 0x9000, 0, Transport::NOW, T0);
+	run(seq, T0, T0 + BEAT);
+	seq.pause(T0 + BEAT);
+	seq.end_note(n, Transport::NOW, T0 + BEAT + 1000);
+	seq.play(T0 + 2 * BEAT);
+	CHECK(rec.of(Kind::NOTE_ON).size() == 1 && seq.note_state(n) == NoteState::ENDED);
+}
+
 int main() {
 	test_values();
 	test_wire_encoding();
@@ -285,6 +334,7 @@ int main() {
 	test_routing();
 	test_loop();
 	test_transport_to_targets();
+	test_chase_notes();
 	std::printf(failures ? "%d MIDI FAILURES\n" : "all MIDI core tests passed\n", failures);
 	return failures ? 1 : 0;
 }

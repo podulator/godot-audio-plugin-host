@@ -2,7 +2,7 @@
 
 ## In development
 
-- **MIDI:** a new addon, `midi_host`, with `MidiDriver`: notes, controllers, pitch bend, pressure and program changes from scripts, now or planned on a beat grid (`next()`, `after()`, `at_beat()`), landing on the exact audio sample. MIDI 1.0 or 2.0 value ranges, channels 1-16, a `MidiNote` for each note, and a transport (play, pause and resume, stop, seek, loop, panic) with signals. Targets are any objects with `midi_event()` and `midi_stop()`, and optionally `midi_transport()`.
+- **MIDI:** a new addon, `midi_host`, with `MidiDriver`: notes, controllers, pitch bend, pressure and program changes from scripts, now or planned on a beat grid (`next()`, `after()`, `at_beat()`), landing on the exact audio sample. MIDI 1.0 or 2.0 value ranges, channels 1-16, a `MidiNote` for each note, and a transport (play, pause and resume, stop, seek, loop, panic) with signals, and optionally notes chased on resume (`chase_notes`). Targets are any objects with `midi_event()` and `midi_stop()`, and optionally `midi_transport()`.
 - The tests never read or write the real home directory any more.
 
 ## 1.1.1 (unreleased)

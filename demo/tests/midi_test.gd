@@ -21,6 +21,7 @@ func _ready() -> void:
 	await _test_pause_resume()
 	await _test_signals()
 	await _test_transport()
+	await _test_chase_notes()
 	print("MIDI %s" % ("OK" if failures == 0 else "FAILED (%d)" % failures))
 	get_tree().quit(1 if failures else 0)
 
@@ -159,4 +160,23 @@ func _test_transport() -> void:
 		_check(t[1].playing and t[1].song_beat == 0.0 and t[1].bpm == 120.0, "play: playing from beat 0 at 120 bpm")
 		_check(not t[2].playing and absf(t[2].song_beat - 0.5) < 0.05, "pause: stopped at about beat 0.5 (%.3f)" % t[2].song_beat)
 		_check(t[3].bpm == 90.0 and t[3].source == midi.get_instance_id(), "tempo: 90 bpm, from this driver")
+	midi.queue_free()
+
+
+# chase_notes: a held note the pause ended starts again on resume, the same note (its id).
+func _test_chase_notes() -> void:
+	var midi := MidiDriver.create(1)
+	add_child(midi)
+	var rec := Recorder.new()
+	midi.set_channel_target(1, rec)
+	midi.chase_notes = true
+	midi.play()
+	var n := midi.note_on(1, 60, 100)
+	await _frames(0.2)
+	midi.pause()
+	_check(n.is_active() and not n.is_sounding(), "chase_notes: paused, the note waits to start again")
+	midi.play()
+	await _frames(0.1)
+	var on := rec.of(MidiDriver.EVENT_NOTE_ON)
+	_check(on.size() == 2 and on[1].note_id == n.get_id() and n.is_sounding(), "chase_notes: on resume the same note starts again (%d note-ons)" % on.size())
 	midi.queue_free()

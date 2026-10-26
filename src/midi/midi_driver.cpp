@@ -311,12 +311,15 @@ void MidiDriver::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_bpm"), &MidiDriver::get_bpm);
 	ClassDB::bind_method(D_METHOD("set_lookahead_ms", "ms"), &MidiDriver::set_lookahead_ms);
 	ClassDB::bind_method(D_METHOD("get_lookahead_ms"), &MidiDriver::get_lookahead_ms);
+	ClassDB::bind_method(D_METHOD("set_chase_notes", "on"), &MidiDriver::set_chase_notes);
+	ClassDB::bind_method(D_METHOD("get_chase_notes"), &MidiDriver::get_chase_notes);
 	ClassDB::bind_method(D_METHOD("get_velocity_max"), &MidiDriver::get_velocity_max);
 	ClassDB::bind_method(D_METHOD("get_controller_max"), &MidiDriver::get_controller_max);
 	ClassDB::bind_method(D_METHOD("get_pitch_bend_max"), &MidiDriver::get_pitch_bend_max);
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "midi_version", PROPERTY_HINT_ENUM, "MIDI 1.0:1,MIDI 2.0:2"), "set_midi_version", "get_midi_version");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "bpm", PROPERTY_HINT_RANGE, "1,999,0.01,or_greater"), "set_bpm", "get_bpm");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "lookahead_ms", PROPERTY_HINT_RANGE, "0,1000,1,suffix:ms"), "set_lookahead_ms", "get_lookahead_ms");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "chase_notes"), "set_chase_notes", "get_chase_notes");
 
 	ClassDB::bind_method(D_METHOD("set_channel_target", "channel", "target"), &MidiDriver::set_channel_target);
 	ClassDB::bind_method(D_METHOD("get_channel_target", "channel"), &MidiDriver::get_channel_target);
