@@ -12,6 +12,7 @@
 # changed: the export runs with its own configuration folder in the scratch directory.
 set -e
 root="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$root/tests/isolated_home.sh" # HOME and the XDG folders: a scratch folder, never the real ones
 tmp="${GAPH_TEST_TMP:-${TMPDIR:-/tmp}/godot-audio-plugin-host-tests}/android"
 ndk_version="${NDK_VERSION:-30.0.16248370}"
 java_home="${JAVA_HOME:-/usr/lib/jvm/default}"
@@ -76,9 +77,10 @@ architectures/x86_64=true
 package/unique_name="$package"
 package/name="GAPH test"
 EOF
+templates="${GODOT_TEMPLATES:-$XDG_DATA_HOME/godot/export_templates}"
 export XDG_CONFIG_HOME="$tmp/config" XDG_DATA_HOME="$tmp/data"
 mkdir -p "$XDG_CONFIG_HOME/godot" "$XDG_DATA_HOME/godot"
-ln -s "${GODOT_TEMPLATES:-$HOME/.local/share/godot/export_templates}" "$XDG_DATA_HOME/godot/export_templates"
+ln -s "$templates" "$XDG_DATA_HOME/godot/export_templates"
 version="$(godot --version | cut -d. -f1-2)"
 printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\nexport/android/android_sdk_path = "%s"\nexport/android/java_sdk_path = "%s"\n' \
 	"$ANDROID_HOME" "$java_home" > "$XDG_CONFIG_HOME/godot/editor_settings-$version.tres"

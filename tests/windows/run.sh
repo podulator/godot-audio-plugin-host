@@ -6,6 +6,7 @@
 # a window on screen. A scratch WINEPREFIX keeps the user's ~/.wine untouched. Skips without them.
 set -eo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$root/tests/isolated_home.sh" # HOME and the XDG folders: a scratch folder, never the real ones
 tmp="${GAPH_TEST_TMP:-${TMPDIR:-/tmp}/godot-audio-plugin-host-tests}"; mkdir -p "$tmp"
 # On Windows itself (Git Bash in CI): MinGW's gcc as it is installed there, and no Wine.
 case "$(uname -s)" in

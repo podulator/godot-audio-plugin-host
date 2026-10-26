@@ -9,10 +9,11 @@
 # macOS) are stood in for by empty folders, with code signing off. Skips without the template.
 set -e
 root="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$root/tests/isolated_home.sh" # HOME and the XDG folders: a scratch folder, never the real ones
 tmp="${GAPH_TEST_TMP:-${TMPDIR:-/tmp}/godot-audio-plugin-host-tests}"; mkdir -p "$tmp"
 out="$tmp/macos_export"
 ver=$(godot --version | sed -E 's/^([0-9]+\.[0-9]+(\.[0-9]+)?)\.([a-z]+).*/\1.\3/')
-if [ ! -f "$HOME/.local/share/godot/export_templates/$ver/macos.zip" ]; then
+if [ ! -f "$XDG_DATA_HOME/godot/export_templates/$ver/macos.zip" ]; then
 	echo "SKIP  needs the macOS export template for $ver"
 	echo "MACOS EXPORT OK (1 skipped)"
 	exit 0

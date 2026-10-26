@@ -5,6 +5,7 @@
 #   3. touching the file (as an update would) gets it retried: it crashes and is blocked again.
 set -e
 root="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$root/tests/isolated_home.sh" # HOME and the XDG folders: a scratch folder, never the real ones
 # Scratch space: GAPH_TEST_TMP, or a folder in the system temp dir (works on any machine, CI too).
 tmp="${GAPH_TEST_TMP:-${TMPDIR:-/tmp}/godot-audio-plugin-host-tests}"; mkdir -p "$tmp"
 work="$tmp/scan_guard_test"

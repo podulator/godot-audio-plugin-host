@@ -5,6 +5,7 @@
 # Needs: the extensions built (template_debug), `godot` on PATH, and SCons in .venv/bin.
 set -e
 root="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$root/tests/isolated_home.sh" # HOME and the XDG folders: a scratch folder, never the real ones
 demo="$root/demo"
 tmp="${GAPH_TEST_TMP:-${TMPDIR:-/tmp}/godot-audio-plugin-host-tests}"
 mkdir -p "$tmp"

@@ -5,6 +5,7 @@
 # templates; skips without them.
 set -e
 root="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$root/tests/isolated_home.sh" # HOME and the XDG folders: a scratch folder, never the real ones
 demo="$root/demo"
 # Scratch space: GAPH_TEST_TMP, or a folder in the system temp dir (works on any machine, CI too).
 tmp="${GAPH_TEST_TMP:-${TMPDIR:-/tmp}/godot-audio-plugin-host-tests}"; mkdir -p "$tmp"
@@ -12,7 +13,7 @@ out="$tmp/export_test"
 "$(command -v scons || echo "$root/.venv/bin/scons")" -C "$root/examples" -Q > /dev/null
 src="$root/examples/build/clap_gain.clap"
 ver=$(godot --version | sed -E 's/^([0-9]+\.[0-9]+(\.[0-9]+)?)\.([a-z]+).*/\1.\3/')
-if [ ! -f "$src" ] || [ ! -d "$HOME/.local/share/godot/export_templates/$ver" ]; then
+if [ ! -f "$src" ] || [ ! -d "$XDG_DATA_HOME/godot/export_templates/$ver" ]; then
 	echo "SKIP  needs $src and export templates for $ver"
 	echo "EXPORT OK (1 skipped)"
 	exit 0

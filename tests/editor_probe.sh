@@ -4,6 +4,7 @@
 # alternative, are ignored by the editor.) Usage: tests/editor_probe.sh res://tests/x.gd [env...]
 set -e
 root="$(cd "$(dirname "$0")/.." && pwd)"
+. "$root/tests/isolated_home.sh" # HOME and the XDG folders: a scratch folder, never the real ones
 demo="$root/demo"
 script="$1"
 shift

@@ -7,6 +7,7 @@
 # suite would only print FAIL, while the run still ended with exit code 0.
 set -eo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
+. "$root/tests/isolated_home.sh" # HOME and the XDG folders: a scratch folder, never the real ones
 
 # No test may open a window on the user's real screen (GUI pop-ups that steal
 # focus are not acceptable). Without DISPLAY no plugin window can open: open_editor() refuses with
