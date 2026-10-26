@@ -155,9 +155,9 @@ An instrument holds at most the lookahead's worth of events, in the runtime's fi
 - **Events into VST3:** notes and poly pressure as VST3 events on the first event input bus. VST3 has no controller events: the plugin's `IMidiMapping` is read into a table when it starts (a main-thread call), and controllers, channel pressure, pitch bend and program change become changes of the parameters it maps them to.
 - **The transport** (`midi_transport`) reaches CLAP plugins as `proc.transport` plus a transport event on the very sample a snapshot lands, and VST3 plugins in the `ProcessContext`, once per block: a loop jump inside a block reaches a VST3 plugin at the next block's start, up to 512 samples late.
 - **Saving,** as for effects: `plugin_state` and `param_values`, in that order after the plugin; parameters as inspector sliders.
+- **Several outputs** (drum machines, multi-out samplers): the plugin renders all of them in the same block; `get_output(i)` is a small `AudioStream` (`ClapInstrumentOutput`, `Vst3InstrumentOutput`) that plays output i, in a player of its own, on any bus; `bind_outputs([players])` does it for a list. Output 0 is the main one, the instrument itself; the others are the plugin's other output ports (CLAP) or aux output buses (VST3), in their order, by their names (`get_output_names()`). An output stream holds its instrument, not the other way round, so no reference cycle keeps either.
 - **Mix rate:** the playback runs at the `AudioServer`'s mix rate, so Godot does not resample.
 - **Not built yet:**
-  - several audio outputs (drum machines and samplers with one output pair per drum): a player delivers one signal to one bus, so the main output plays; more would go to their own buses, like the sidechain sends in reverse;
   - skipping a CLAP plugin that returns `CLAP_PROCESS_SLEEP`, so a silent instrument costs nothing;
   - instruments listed by name (per-plugin classes, as the Add Effect menu has for effects);
   - exact loop jumps for VST3 (splitting the block at a transport snapshot).

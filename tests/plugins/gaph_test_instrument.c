@@ -3,6 +3,7 @@
  *   org.godot-audio-plugin-host.test-instrument       takes CLAP note events (and MIDI for controllers)
  *   org.godot-audio-plugin-host.test-instrument-midi  takes MIDI 1.0 only
  *   org.godot-audio-plugin-host.test-transport        plays back the host's transport
+ *   org.godot-audio-plugin-host.test-drums            three outputs: Main, Kick (key 36), Snare (38)
  *
  * No oscillator: every sounding note adds a constant, velocity (0..1) x 0.25, to both outputs, and
  * channel volume (CC 7, 0..127) scales the sum. So a note's start and end show as exact steps in
@@ -13,6 +14,8 @@
  *
  * The transport plugin ignores notes: its left output is the song position in beats x 0.001 at
  * every sample (from proc->transport and transport events, moved on at the tempo while playing),
+ * The drums plugin is the notes plugin with three stereo outputs: key 36 sounds on Kick, key 38 on
+ * Snare, any other key on Main, each at velocity x 0.25.
  * its right output the tempo x 0.001 while playing, else 0. So the audio shows what the plugin was
  * told, sample by sample: a loop jump is a step down on the very sample it happens.
  */
@@ -37,6 +40,7 @@ typedef struct {
 	const clap_host_t *host;
 	bool midi_only;
 	bool transport_only;
+	bool drums; /* three outputs: Main, Kick, Snare */
 	double rate;
 	/* The transport as last told: position `beat` at sample `at` of this block (may be negative
 	 * when carried over from an earlier block), tempo, playing. */
@@ -58,6 +62,11 @@ static const clap_plugin_descriptor_t DESC_CLAP = {
 static const clap_plugin_descriptor_t DESC_TRANSPORT = {
 	CLAP_VERSION_INIT, "org.godot-audio-plugin-host.test-transport", "GAPH Test Transport", "Godot Audio Plugin Host", "", "", "", "1.0.0",
 	"Plays back the host's transport: song position and tempo as levels", FEATURES,
+};
+static const char *const DRUM_FEATURES[] = { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_DRUM_MACHINE, CLAP_PLUGIN_FEATURE_STEREO, NULL };
+static const clap_plugin_descriptor_t DESC_DRUMS = {
+	CLAP_VERSION_INIT, "org.godot-audio-plugin-host.test-drums", "GAPH Test Drums", "Godot Audio Plugin Host", "", "", "", "1.0.0",
+	"Three outputs: Main, Kick (key 36), Snare (key 38)", DRUM_FEATURES,
 };
 static const clap_plugin_descriptor_t DESC_MIDI = {
 	CLAP_VERSION_INIT, "org.godot-audio-plugin-host.test-instrument-midi", "GAPH Test Instrument (MIDI)", "Godot Audio Plugin Host", "", "", "", "1.0.0",
@@ -99,10 +108,20 @@ static void note_end(Instrument *s, int16_t channel, int16_t key, int32_t note_i
 	s->note_count = keep;
 }
 
-static float level_now(const Instrument *s) {
+/* Output 0 (Main), 1 (Kick) or 2 (Snare): which output a key sounds on, for the drums plugin. */
+static int output_of(const Instrument *s, int16_t key) {
+	if (!s->drums) {
+		return 0;
+	}
+	return key == 36 ? 1 : (key == 38 ? 2 : 0);
+}
+
+static float level_now(const Instrument *s, int output) {
 	float sum = 0.0f;
 	for (int i = 0; i < s->note_count; i++) {
-		sum += s->notes[i].level * s->volume[s->notes[i].channel & 15];
+		if (output_of(s, s->notes[i].key) == output) {
+			sum += s->notes[i].level * s->volume[s->notes[i].channel & 15];
+		}
 	}
 	return (float)(sum * s->master);
 }
@@ -225,9 +244,14 @@ static clap_process_status p_process(const clap_plugin_t *p, const clap_process_
 			left[f] = s->known ? (float)(beat * 0.001) : 0.0f;
 			right[f] = s->known && s->playing ? (float)(s->tempo * 0.001) : 0.0f;
 		} else {
-			const float v = level_now(s);
+			const float v = level_now(s, 0);
 			left[f] = v;
 			right[f] = v;
+			for (uint32_t o = 1; s->drums && o < 3 && o < proc->audio_outputs_count; o++) {
+				const float w = level_now(s, (int)o);
+				proc->audio_outputs[o].data32[0][f] = w;
+				proc->audio_outputs[o].data32[1][f] = w;
+			}
 		}
 	}
 	s->at -= (int64_t)frames; /* the same moment, counted from the next block's first sample */
@@ -240,19 +264,18 @@ static clap_process_status p_process(const clap_plugin_t *p, const clap_process_
 /* --- extensions: one stereo output, one note input --------------------------------------------- */
 
 static uint32_t ports_count(const clap_plugin_t *p, bool is_input) {
-	(void)p;
-	return is_input ? 0 : 1;
+	return is_input ? 0 : (self_of(p)->drums ? 3 : 1);
 }
 
 static bool ports_get(const clap_plugin_t *p, uint32_t index, bool is_input, clap_audio_port_info_t *info) {
-	(void)p;
-	if (is_input || index != 0) {
+	static const char *const NAMES[3] = { "Main", "Kick", "Snare" };
+	if (is_input || index >= ports_count(p, false)) {
 		return false;
 	}
 	memset(info, 0, sizeof(*info));
-	info->id = 0;
-	strcpy(info->name, "Out");
-	info->flags = CLAP_AUDIO_PORT_IS_MAIN;
+	info->id = index;
+	strcpy(info->name, self_of(p)->drums ? NAMES[index] : "Out");
+	info->flags = index == 0 ? CLAP_AUDIO_PORT_IS_MAIN : 0;
 	info->channel_count = 2;
 	info->port_type = CLAP_PORT_STEREO;
 	info->in_place_pair = CLAP_INVALID_ID;
@@ -375,19 +398,20 @@ static void p_on_main_thread(const clap_plugin_t *p) {
 
 static uint32_t factory_count(const clap_plugin_factory_t *f) {
 	(void)f;
-	return 3;
+	return 4;
 }
 
 static const clap_plugin_descriptor_t *factory_descriptor(const clap_plugin_factory_t *f, uint32_t index) {
 	(void)f;
-	return index == 0 ? &DESC_CLAP : (index == 1 ? &DESC_MIDI : (index == 2 ? &DESC_TRANSPORT : NULL));
+	return index == 0 ? &DESC_CLAP : (index == 1 ? &DESC_MIDI : (index == 2 ? &DESC_TRANSPORT : (index == 3 ? &DESC_DRUMS : NULL)));
 }
 
 static const clap_plugin_t *factory_create(const clap_plugin_factory_t *f, const clap_host_t *host, const char *id) {
 	(void)f;
 	const bool midi_only = !strcmp(id, DESC_MIDI.id);
 	const bool transport_only = !strcmp(id, DESC_TRANSPORT.id);
-	if (!midi_only && !transport_only && strcmp(id, DESC_CLAP.id)) {
+	const bool drums = !strcmp(id, DESC_DRUMS.id);
+	if (!midi_only && !transport_only && !drums && strcmp(id, DESC_CLAP.id)) {
 		return NULL;
 	}
 	Instrument *s = (Instrument *)calloc(1, sizeof(Instrument));
@@ -397,8 +421,9 @@ static const clap_plugin_t *factory_create(const clap_plugin_factory_t *f, const
 	s->host = host;
 	s->midi_only = midi_only;
 	s->transport_only = transport_only;
+	s->drums = drums;
 	s->rate = 44100.0;
-	s->plugin.desc = midi_only ? &DESC_MIDI : (transport_only ? &DESC_TRANSPORT : &DESC_CLAP);
+	s->plugin.desc = midi_only ? &DESC_MIDI : (transport_only ? &DESC_TRANSPORT : (drums ? &DESC_DRUMS : &DESC_CLAP));
 	s->plugin.plugin_data = s;
 	s->plugin.init = p_init;
 	s->plugin.destroy = p_destroy;

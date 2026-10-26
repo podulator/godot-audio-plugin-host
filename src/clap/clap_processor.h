@@ -63,6 +63,7 @@ public:
 	~ClapProcessor() override;
 
 	bool process(const AudioBlock &p_block) override;
+	std::vector<std::string> output_names() const override;
 	void detach_from_audio() override;
 	void idle() override;
 	bool pop_output_param(ParamEvent &r_event) override;

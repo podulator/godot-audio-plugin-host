@@ -9,6 +9,7 @@ const TestUtilScript = preload("res://tests/test_util.gd")
 const CLAP_ID := "org.godot-audio-plugin-host.test-instrument"
 const MIDI_ID := "org.godot-audio-plugin-host.test-instrument-midi"
 const TRANSPORT_ID := "org.godot-audio-plugin-host.test-transport"
+const DRUMS_ID := "org.godot-audio-plugin-host.test-drums"
 
 var failures := 0
 var rate := 44100.0
@@ -31,6 +32,7 @@ func _ready() -> void:
 		await _test_pause(path)
 		await _test_two_channels(path)
 		await _test_two_players(path)
+		await _test_outputs(path, DRUMS_ID, "CLAP")
 		await _test_transport(path)
 	var vst3_notes := TestUtilScript.own_plugin("gaph_test_vst3_instrument.vst3")
 	var vst3_transport := TestUtilScript.own_plugin("gaph_test_vst3_transport.vst3")
@@ -40,6 +42,9 @@ func _ready() -> void:
 		await _test_vst3_notes(vst3_notes)
 		await _test_vst3_transport(vst3_transport)
 		await _test_saving(vst3_notes, "VST3")
+		var vst3_drums := TestUtilScript.own_plugin("gaph_test_vst3_drums.vst3")
+		if DirAccess.dir_exists_absolute(vst3_drums):
+			await _test_outputs(vst3_drums, "", "VST3")
 	await _test_saving(path, "CLAP")
 	print("INSTRUMENT %s" % ("OK" if failures == 0 else "FAILED (%d)" % failures))
 	get_tree().quit(1 if failures else 0)
@@ -354,3 +359,67 @@ func _test_two_players(path: String) -> void:
 	second.queue_free()
 	late.queue_free()
 	await _unrig(r)
+
+
+
+# Outputs: a drum machine with Main, Kick (key 36) and Snare (key 38), bound to three players on
+# three buses with bind_outputs(). Three notes on one beat: each bus hears only its own drum, at
+# 0.25, and all three start on the same mix step (the captures, cleared together, see the step
+# at the same frame), since the outputs come from one plugin instance, rendered once a step.
+func _test_outputs(path: String, id: String, format: String) -> void:
+	var vst3 := format == "VST3"
+	var inst: AudioStream = Vst3Instrument.new() if vst3 else ClapInstrument.new()
+	inst.plugin_path = path
+	if not vst3:
+		inst.plugin_id = id
+	_check(inst.is_plugin_loaded(), "%s drums load (%s)" % [format, inst.get_load_error()])
+	var names: PackedStringArray = inst.get_output_names()
+	_check(names == PackedStringArray(["Main", "Kick", "Snare"]), "%s: the plugin's outputs by name (%s)" % [format, names])
+	var caps := []
+	var players := []
+	for i in 3:
+		var bus_name := "Out_%s_%d" % [format, i]
+		var bus := AudioServer.bus_count
+		AudioServer.add_bus(bus)
+		AudioServer.set_bus_name(bus, bus_name)
+		var cap := AudioEffectCapture.new()
+		cap.buffer_length = 4.0
+		AudioServer.add_bus_effect(bus, cap)
+		caps.append(cap)
+		var player := AudioStreamPlayer.new()
+		player.bus = bus_name
+		add_child(player)
+		players.append(player)
+	inst.bind_outputs(players)
+	_check(players[1].stream is AudioStream and players[1].stream != inst and players[0].stream == inst, "%s: output 0 is the instrument, the others streams of their own" % format)
+	var midi := MidiDriver.create(1)
+	add_child(midi)
+	midi.set_channel_target(10, inst)
+	await get_tree().create_timer(1.2).timeout
+	midi.play()
+	var at := midi.at_beat(0.5)
+	midi.note_on(10, 42, 127, 0.5, at) # Main
+	midi.note_on(10, 36, 127, 0.5, at) # Kick
+	midi.note_on(10, 38, 127, 0.5, at) # Snare
+	var frames := [PackedVector2Array(), PackedVector2Array(), PackedVector2Array()]
+	for c in caps:
+		c.clear_buffer()
+	var t0 := Time.get_ticks_usec()
+	while Time.get_ticks_usec() - t0 < 0.9e6:
+		await get_tree().process_frame
+		for i in 3:
+			frames[i].append_array(caps[i].get_buffer(caps[i].get_frames_available()))
+	var starts := []
+	for i in 3:
+		var steps := _steps(frames[i])
+		_check(steps.size() == 2 and is_equal_approx(steps[0][1], 0.25), "%s: output %d (%s) plays only its own drum, at 0.25 (%s)" % [format, i, names[i] if i < names.size() else "?", str(steps)])
+		starts.append(steps[0][0] if steps.size() > 0 else -1)
+	_check(starts[0] == starts[1] and starts[1] == starts[2] and starts[0] >= 0, "%s: all three outputs start on the same sample (%s)" % [format, str(starts)])
+	midi.queue_free()
+	for p in players:
+		p.stop()
+	await get_tree().create_timer(0.1).timeout
+	for i in 3:
+		players[i].queue_free()
+		await get_tree().process_frame
+		AudioServer.remove_bus(AudioServer.get_bus_index("Out_%s_%d" % [format, i]))

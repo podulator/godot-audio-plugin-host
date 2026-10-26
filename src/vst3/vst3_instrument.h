@@ -27,7 +27,9 @@ class Vst3InstrumentPlayback : public AudioStreamPlayback {
 
 public:
 	~Vst3InstrumentPlayback() override;
-	void setup(const Ref<Vst3Instrument> &p_instrument);
+	// p_output: which of the instrument's outputs this playback plays (0, the main one, unless it
+	// was made by a Vst3InstrumentOutput).
+	void setup(const Ref<Vst3Instrument> &p_instrument, uint32_t p_output = 0);
 
 	void _start(double) override { playing = true; }
 	void _stop() override { playing = false; }
@@ -41,6 +43,7 @@ protected:
 private:
 	Ref<Vst3Instrument> instrument;
 	gaph_godot::VoiceTap tap; // which mix step this playback is in (shared_voice.h)
+	uint32_t output = 0;
 	bool playing = false;
 };
 
@@ -70,6 +73,14 @@ public:
 	Dictionary get_param_values();
 	int64_t get_frames_processed();
 
+	// Outputs: a plugin with several (a drum machine's kick, snare, ...) plays each through a
+	// stream of its own, in its own player, on any bus. Output 0 is the main one: the instrument
+	// itself. All come from the one plugin instance, in step to the sample (shared_voice.h).
+	int get_output_count();
+	PackedStringArray get_output_names();
+	Ref<AudioStream> get_output(int p_index);
+	void bind_outputs(const Array &p_players);
+
 	bool open_editor();
 	void close_editor();
 	bool is_editor_open() const;
@@ -86,6 +97,7 @@ public:
 
 	gaph::HostedEffect &get_hosted() { return hosted; }
 	gaph_godot::SharedVoice &get_voice() { return voice; }
+	uint32_t output_count() const { return output_names.size() > 0 ? uint32_t(output_names.size()) : 1; }
 
 protected:
 	static void _bind_methods();
@@ -110,7 +122,34 @@ private:
 	mutable gaph::HostedEffect hosted; // mutable: see ClapInstrument
 	gaph_godot::InstrumentInput input;
 	gaph_godot::SharedVoice voice; // the one plugin instance all playbacks hear
+	PackedStringArray output_names; // from the plugin, when it loads; the main output first
 	gaph_godot::EditorWindow editor_window;
+};
+
+// One of an instrument's outputs beyond the main one, as a stream of its own (get_output()).
+// It holds the instrument; the instrument does not hold it, so no reference cycle keeps either.
+class Vst3InstrumentOutput : public AudioStream {
+	GDCLASS(Vst3InstrumentOutput, AudioStream);
+
+public:
+	void setup(const Ref<Vst3Instrument> &p_instrument, int p_index) {
+		instrument = p_instrument;
+		index = p_index;
+	}
+	Ref<Vst3Instrument> get_instrument() const { return instrument; }
+	int get_index() const { return index; }
+
+	Ref<AudioStreamPlayback> _instantiate_playback() const override;
+	String _get_stream_name() const override;
+	double _get_length() const override { return 0.0; }
+	bool _is_monophonic() const override { return true; }
+
+protected:
+	static void _bind_methods();
+
+private:
+	Ref<Vst3Instrument> instrument;
+	int index = 0;
 };
 
 } // namespace godot

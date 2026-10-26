@@ -539,7 +539,46 @@ bool Vst3Processor::process(const AudioBlock &p_block) {
 			std::memcpy(p_block.outputs[c], out.ptrs[src_c], bytes);
 		}
 	}
+
+	// An instrument's extra outputs: the output buses after the main one (kAux), in their order,
+	// each to the next extra output (mono to both sides); one the plugin does not have is silent.
+	uint32_t extra = 0;
+	for (size_t i = 0; i < outputs.size() && extra < p_block.extra_output_count; i++) {
+		if (int(i) == main_output || outputs[i].channels == 0) {
+			continue;
+		}
+		const Bus &bus = outputs[i];
+		const uint64 bus_silent = output_buffers[i].silenceFlags;
+		for (uint32_t c = 0; c < 2; c++) {
+			const uint32_t src_c = c < bus.channels ? c : bus.channels - 1;
+			float *dst = p_block.extra_outputs[extra * 2 + c];
+			if (src_c < 64 && (bus_silent & (uint64(1) << src_c))) {
+				std::memset(dst, 0, bytes);
+			} else {
+				std::memcpy(dst, bus.ptrs[src_c], bytes);
+			}
+		}
+		extra++;
+	}
+	for (; extra < p_block.extra_output_count; extra++) {
+		std::memset(p_block.extra_outputs[extra * 2], 0, bytes);
+		std::memset(p_block.extra_outputs[extra * 2 + 1], 0, bytes);
+	}
 	return true;
+}
+
+// MAIN THREAD. The output buses' names, the main one first, then the others in their order.
+std::vector<std::string> Vst3Processor::output_names() const {
+	std::vector<std::string> out;
+	if (main_output >= 0) {
+		out.push_back(output_info[main_output].name);
+	}
+	for (size_t i = 0; i < output_info.size(); i++) {
+		if (int(i) != main_output) {
+			out.push_back(output_info[i].name);
+		}
+	}
+	return out;
 }
 
 bool Vst3Processor::pop_output_param(ParamEvent &r_event) {

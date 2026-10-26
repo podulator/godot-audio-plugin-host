@@ -108,6 +108,13 @@ struct AudioBlock {
 	const float *const *aux_inputs = nullptr;
 	const ParamEvent *param_events = nullptr;
 	uint32_t param_event_count = 0;
+
+	// An instrument's outputs beyond the main one (a drum machine's kick, snare, ...), planar
+	// like `outputs`: extra_outputs[k * 2] and [k * 2 + 1] are extra output k's left and right.
+	// nullptr for effects, whose extra outputs nobody hears. The format layer fills each from the
+	// plugin's k-th non-main output port (mono to both sides), or with silence if it has fewer.
+	uint32_t extra_output_count = 0;
+	float *const *extra_outputs = nullptr;
 };
 
 // One running plugin instance, already activated by the format adapter that created it.
@@ -184,6 +191,10 @@ public:
 	// returns true once, and the host calls read_params() again.
 	virtual std::vector<ParamInfo> read_params() const { return {}; }
 	virtual bool take_params_changed() { return false; }
+
+	// MAIN THREAD. The names of the plugin's audio outputs, the main one first ("Main", "Kick",
+	// "Snare", ...). For instruments with several outputs (AudioBlock::extra_outputs).
+	virtual std::vector<std::string> output_names() const { return {}; }
 };
 
 } // namespace gaph

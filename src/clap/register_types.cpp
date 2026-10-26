@@ -117,6 +117,7 @@ static void initialize_clap_host(ModuleInitializationLevel p_level) {
 	GDREGISTER_CLASS(ClapSidechainSend);
 	GDREGISTER_CLASS(ClapInstrument);
 	GDREGISTER_INTERNAL_CLASS(ClapInstrumentPlayback);
+	GDREGISTER_CLASS(ClapInstrumentOutput);
 	GDREGISTER_INTERNAL_CLASS(ClapSidechainSendInstance);
 	register_menu_classes();
 }

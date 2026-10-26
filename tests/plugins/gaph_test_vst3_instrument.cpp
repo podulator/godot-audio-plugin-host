@@ -1,6 +1,7 @@
 // A deterministic VST3 instrument for the tests, the twin of gaph_test_instrument.c. Built twice,
 // as two bundles: gaph_test_vst3_instrument.vst3, and with GAPH_TEST_TRANSPORT defined
-// gaph_test_vst3_transport.vst3. One class each, so a test loads it as "the bundle's first class":
+// gaph_test_vst3_transport.vst3, and with GAPH_TEST_DRUMS gaph_test_vst3_drums.vst3 (the notes
+// instrument with outputs Main, Kick for key 36 and Snare for key 38). One class each, so a test loads it as "the bundle's first class":
 // a class id's text differs between Windows (COM byte order) and elsewhere. The two classes:
 //
 //   GAPH Test VST3 Instrument  each sounding note adds velocity x 0.25; a "Volume" parameter,
@@ -28,6 +29,7 @@ namespace {
 
 const FUID INSTRUMENT_ID(0x67617068u, 0x74657374u, 0x76737433u, 0x696e7301u);
 const FUID TRANSPORT_ID(0x67617068u, 0x74657374u, 0x76737433u, 0x74727001u);
+const FUID DRUMS_ID(0x67617068u, 0x74657374u, 0x76737433u, 0x64726d01u);
 constexpr ParamID VOLUME_ID = 1;
 constexpr int MAX_NOTES = 64;
 
@@ -39,23 +41,31 @@ struct Note {
 
 class TestInstrument : public SingleComponentEffect, public IMidiMapping {
 public:
-	explicit TestInstrument(bool p_transport) :
-			transport_only(p_transport) {}
+	explicit TestInstrument(bool p_transport, bool p_drums = false) :
+			transport_only(p_transport), drums(p_drums) {}
 	static FUnknown *create_notes(void *) { return static_cast<IAudioProcessor *>(new TestInstrument(false)); }
 	static FUnknown *create_transport(void *) { return static_cast<IAudioProcessor *>(new TestInstrument(true)); }
+	static FUnknown *create_drums(void *) { return static_cast<IAudioProcessor *>(new TestInstrument(false, true)); }
 
 	tresult PLUGIN_API initialize(FUnknown *context) override {
 		if (SingleComponentEffect::initialize(context) != kResultOk) {
 			return kResultFalse;
 		}
 		addAudioOutput(STR16("Main"), SpeakerArr::kStereo);
+		if (drums) {
+			addAudioOutput(STR16("Kick"), SpeakerArr::kStereo, kAux, 0);
+			addAudioOutput(STR16("Snare"), SpeakerArr::kStereo, kAux, 0);
+		}
 		addEventInput(STR16("Notes"), 16);
 		parameters.addParameter(STR16("Volume"), STR16(""), 0, 1.0, ParameterInfo::kCanAutomate, VOLUME_ID);
 		return kResultOk;
 	}
 
 	tresult PLUGIN_API setBusArrangements(SpeakerArrangement *in, int32 n_in, SpeakerArrangement *out, int32 n_out) override {
-		const bool ok = n_in == 0 && n_out == 1 && out[0] == SpeakerArr::kStereo;
+		bool ok = n_in == 0 && n_out == (drums ? 3 : 1);
+		for (int32 i = 0; ok && i < n_out; i++) {
+			ok = out[i] == SpeakerArr::kStereo;
+		}
 		return ok ? SingleComponentEffect::setBusArrangements(in, n_in, out, n_out) : kResultFalse;
 	}
 
@@ -145,18 +155,25 @@ public:
 				out[0][f] = known ? float(beat * 0.001) : 0.0f;
 				out[1][f] = playing ? float(tempo * 0.001) : 0.0f;
 			} else {
-				float sum = 0.0f;
+				float sum[3] = { 0.0f, 0.0f, 0.0f };
 				for (int i = 0; i < note_count; i++) {
-					sum += notes[i].level;
+					sum[output_of(notes[i].pitch)] += notes[i].level;
 				}
-				out[0][f] = out[1][f] = float(sum * volume);
+				out[0][f] = out[1][f] = float(sum[0] * volume);
+				for (int32 o = 1; drums && o < 3 && o < data.numOutputs; o++) {
+					data.outputs[o].channelBuffers32[0][f] = data.outputs[o].channelBuffers32[1][f] = float(sum[o] * volume);
+				}
 			}
 		}
-		data.outputs[0].silenceFlags = 0;
+		for (int32 o = 0; o < data.numOutputs; o++) {
+			data.outputs[o].silenceFlags = 0;
+		}
 		return kResultOk;
 	}
 
 private:
+	int output_of(int16 pitch) const { return !drums ? 0 : (pitch == 36 ? 1 : (pitch == 38 ? 2 : 0)); }
+
 	void handle(const Event &e) {
 		if (e.type == Event::kNoteOnEvent && note_count < MAX_NOTES) {
 			notes[note_count++] = Note{ e.noteOn.channel, e.noteOn.pitch, e.noteOn.noteId, e.noteOn.velocity * 0.25f };
@@ -174,6 +191,7 @@ private:
 	}
 
 	bool transport_only;
+	bool drums;
 	double rate = 44100.0;
 	double volume = 1.0;
 	Note notes[MAX_NOTES];
@@ -183,7 +201,10 @@ private:
 } // namespace
 
 BEGIN_FACTORY_DEF("godot-audio-plugin-host", "", "")
-#ifndef GAPH_TEST_TRANSPORT
+#if defined(GAPH_TEST_DRUMS)
+DEF_CLASS2(INLINE_UID_FROM_FUID(DRUMS_ID), PClassInfo::kManyInstances, kVstAudioEffectClass, "GAPH Test VST3 Drums",
+		Vst::kDistributable, "Instrument|Drum", "1.0.0", kVstVersionString, TestInstrument::create_drums)
+#elif !defined(GAPH_TEST_TRANSPORT)
 DEF_CLASS2(INLINE_UID_FROM_FUID(INSTRUMENT_ID), PClassInfo::kManyInstances, kVstAudioEffectClass, "GAPH Test VST3 Instrument",
 		Vst::kDistributable, Vst::PlugType::kInstrumentSynth, "1.0.0", kVstVersionString, TestInstrument::create_notes)
 #else

@@ -16,9 +16,10 @@ using gaph_godot::to_std;
 // --- ClapInstrumentPlayback ------------------------------------------------------------------
 // The sound is the instrument's, shared by all its playbacks (godot_common/shared_voice.h).
 
-void ClapInstrumentPlayback::setup(const Ref<ClapInstrument> &p_instrument) {
+void ClapInstrumentPlayback::setup(const Ref<ClapInstrument> &p_instrument, uint32_t p_output) {
 	instrument = p_instrument;
-	instrument->get_voice().join(instrument->get_hosted(), tap);
+	output = p_output;
+	instrument->get_voice().join(instrument->get_hosted(), tap, instrument->output_count());
 }
 
 ClapInstrumentPlayback::~ClapInstrumentPlayback() {
@@ -40,7 +41,7 @@ bool ClapInstrumentPlayback::_is_playing() const {
 }
 
 int32_t ClapInstrumentPlayback::_mix(AudioFrame *p_buffer, float, int32_t p_frames) {
-	return instrument->get_voice().mix(tap, p_buffer, p_frames);
+	return instrument->get_voice().mix(tap, p_buffer, p_frames, output);
 }
 
 // --- ClapInstrument: setup and loading (as ClapPluginEffect does it) ---------------------------
@@ -140,6 +141,10 @@ void ClapInstrument::load_plugin() {
 		return gaph::ClapProcessor::create(lib, id, rate, gaph::EffectRuntime::MAX_BLOCK, true, r_error);
 	};
 	hosted.set_reference(probe.get());
+	output_names.clear();
+	for (const std::string &name : probe->output_names()) {
+		output_names.push_back(String::utf8(name.c_str()));
+	}
 	err = hosted.set_plugin(factory, probe->read_params());
 	if (!err.empty()) {
 		UtilityFunctions::push_error("ClapInstrument: ", String::utf8(err.c_str()));
@@ -284,6 +289,49 @@ void ClapInstrument::_get_property_list(List<PropertyInfo> *p_list) const {
 	gaph_godot::append_param_properties(hosted, p_list);
 }
 
+// --- Outputs ----------------------------------------------------------------------------------
+
+int ClapInstrument::get_output_count() {
+	ensure_loaded();
+	return int(output_count());
+}
+
+PackedStringArray ClapInstrument::get_output_names() {
+	ensure_loaded();
+	return output_names;
+}
+
+// Output 0 is the instrument itself; any other is a small stream that plays that output. A new
+// one each call: it only refers to the instrument, and all of them read the one shared voice.
+Ref<AudioStream> ClapInstrument::get_output(int p_index) {
+	ensure_loaded();
+	ERR_FAIL_COND_V_MSG(p_index < 0 || p_index >= int(output_count()), Ref<AudioStream>(),
+			vformat("ClapInstrument: output %d does not exist; the plugin has %d (get_output_names()).", p_index, int(output_count())));
+	if (p_index == 0) {
+		return Ref<AudioStream>(this);
+	}
+	Ref<ClapInstrumentOutput> out;
+	out.instantiate();
+	out->setup(Ref<ClapInstrument>(this), p_index);
+	return out;
+}
+
+// Output i to player i (AudioStreamPlayer, 2D or 3D: anything with a `stream` and play()), and
+// starts each. Extra players beyond the plugin's outputs are refused.
+void ClapInstrument::bind_outputs(const Array &p_players) {
+	ensure_loaded();
+	for (int i = 0; i < p_players.size(); i++) {
+		Object *player = p_players[i];
+		ERR_CONTINUE_MSG(!player || !player->has_method("play"), vformat("ClapInstrument: bind_outputs() item %d is not a player.", i));
+		Ref<AudioStream> stream = get_output(i);
+		if (stream.is_null()) {
+			continue;
+		}
+		player->set("stream", stream);
+		player->call("play");
+	}
+}
+
 // --- The plugin window ------------------------------------------------------------------------
 
 bool ClapInstrument::open_editor() {
@@ -349,6 +397,10 @@ void ClapInstrument::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("midi_event", "time_us", "source", "kind", "channel", "index", "value", "note_id"), &ClapInstrument::midi_event);
 	ClassDB::bind_method(D_METHOD("midi_stop", "time_us", "source", "mode"), &ClapInstrument::midi_stop);
 	ClassDB::bind_method(D_METHOD("midi_transport", "time_us", "source", "playing", "bpm", "song_beat", "loop_start", "loop_end"), &ClapInstrument::midi_transport);
+	ClassDB::bind_method(D_METHOD("get_output_count"), &ClapInstrument::get_output_count);
+	ClassDB::bind_method(D_METHOD("get_output_names"), &ClapInstrument::get_output_names);
+	ClassDB::bind_method(D_METHOD("get_output", "index"), &ClapInstrument::get_output);
+	ClassDB::bind_method(D_METHOD("bind_outputs", "players"), &ClapInstrument::bind_outputs);
 	ClassDB::bind_method(D_METHOD("open_editor"), &ClapInstrument::open_editor);
 	ClassDB::bind_method(D_METHOD("close_editor"), &ClapInstrument::close_editor);
 	ClassDB::bind_method(D_METHOD("is_editor_open"), &ClapInstrument::is_editor_open);
@@ -365,6 +417,29 @@ void ClapInstrument::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "param_values", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_param_values", "get_param_values");
 	ADD_SIGNAL(MethodInfo("parameter_changed", PropertyInfo(Variant::INT, "id"), PropertyInfo(Variant::FLOAT, "value")));
 	ADD_SIGNAL(MethodInfo("parameters_changed"));
+}
+
+// --- ClapInstrumentOutput ---------------------------------------------------------------------------
+
+Ref<AudioStreamPlayback> ClapInstrumentOutput::_instantiate_playback() const {
+	ERR_FAIL_COND_V(instrument.is_null(), Ref<AudioStreamPlayback>());
+	Ref<ClapInstrumentPlayback> playback;
+	playback.instantiate();
+	playback->setup(instrument, uint32_t(index));
+	return playback;
+}
+
+String ClapInstrumentOutput::_get_stream_name() const {
+	if (instrument.is_null()) {
+		return "";
+	}
+	const PackedStringArray names = const_cast<ClapInstrument *>(instrument.ptr())->get_output_names();
+	return index < names.size() ? names[index] : String::num_int64(index);
+}
+
+void ClapInstrumentOutput::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("get_instrument"), &ClapInstrumentOutput::get_instrument);
+	ClassDB::bind_method(D_METHOD("get_index"), &ClapInstrumentOutput::get_index);
 }
 
 } // namespace godot

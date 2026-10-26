@@ -26,6 +26,22 @@ EffectRuntime::EffectRuntime() :
 	for (uint32_t c = 0; c < CHANNELS; c++) {
 		aux_base[c] = aux_storage.data() + c * SidechainChannel::MAX_FRAMES;
 	}
+	extra_storage.resize(size_t(MAX_EXTRA_OUTPUTS) * CHANNELS * MAX_BLOCK);
+	for (uint32_t c = 0; c < MAX_EXTRA_OUTPUTS * CHANNELS; c++) {
+		extra_ptrs[c] = extra_storage.data() + size_t(c) * MAX_BLOCK;
+	}
+}
+
+void EffectRuntime::process_with_outputs(const float *p_src, float *p_dst, uint32_t p_frames, float *const *p_extra, uint32_t p_extra_count) {
+	extra_dst = p_extra;
+	extra_dst_count = p_extra_count < MAX_EXTRA_OUTPUTS ? p_extra_count : MAX_EXTRA_OUTPUTS;
+	// Silence first: a plugin with fewer outputs, a failed block, or no plugin leaves them so.
+	for (uint32_t k = 0; k < extra_dst_count; k++) {
+		std::memset(extra_dst[k], 0, sizeof(float) * CHANNELS * p_frames);
+	}
+	process_at(p_src, p_dst, p_frames, host_time_us());
+	extra_dst = nullptr;
+	extra_dst_count = 0;
 }
 
 std::unique_ptr<PluginProcessor> EffectRuntime::exchange_processor(std::unique_ptr<PluginProcessor> p_processor) {
@@ -256,6 +272,10 @@ void EffectRuntime::process_chunk(const float *p_src, float *p_dst, uint32_t p_f
 		block.aux_inputs = aux_ptrs;
 		block.aux_channels = CHANNELS;
 	}
+	if (extra_dst_count > 0) {
+		block.extra_outputs = extra_ptrs;
+		block.extra_output_count = extra_dst_count;
+	}
 
 	if (!processor->process(block)) {
 		// The plugin refused or failed: pass the input through rather than output garbage, or
@@ -264,10 +284,19 @@ void EffectRuntime::process_chunk(const float *p_src, float *p_dst, uint32_t p_f
 		return;
 	}
 
-	// 4. Reinterleave into Godot's buffer.
+	// 4. Reinterleave into Godot's buffer, and any extra outputs into theirs.
 	for (uint32_t i = 0; i < p_frames; i++) {
 		p_dst[i * 2] = out_ptrs[0][i];
 		p_dst[i * 2 + 1] = out_ptrs[1][i];
+	}
+	for (uint32_t k = 0; k < extra_dst_count; k++) {
+		float *dst = extra_dst[k] + size_t(p_offset) * CHANNELS;
+		const float *left = extra_ptrs[k * CHANNELS];
+		const float *right = extra_ptrs[k * CHANNELS + 1];
+		for (uint32_t i = 0; i < p_frames; i++) {
+			dst[i * 2] = left[i];
+			dst[i * 2 + 1] = right[i];
+		}
 	}
 }
 

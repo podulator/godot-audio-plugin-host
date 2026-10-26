@@ -183,9 +183,9 @@ if ARGUMENTS.get("test_plugin", "no") == "yes":
             "<key>CFBundlePackageType</key><string>BNDL</string>",
             "</dict></plist>",
         ], TEXTFILESUFFIX=""))
-    # The VST3 test instruments (tests/plugins/gaph_test_vst3_instrument.cpp): no GUI. Built twice,
-    # one class per bundle: the notes instrument, and with GAPH_TEST_TRANSPORT the transport one.
-    for name, defines in (("gaph_test_vst3_instrument", []), ("gaph_test_vst3_transport", ["GAPH_TEST_TRANSPORT"])):
+    # The VST3 test instruments (tests/plugins/gaph_test_vst3_instrument.cpp): no GUI. Built three
+    # times, one class per bundle: notes; transport (GAPH_TEST_TRANSPORT); drums (GAPH_TEST_DRUMS).
+    for name, defines in (("gaph_test_vst3_instrument", []), ("gaph_test_vst3_transport", ["GAPH_TEST_TRANSPORT"]), ("gaph_test_vst3_drums", ["GAPH_TEST_DRUMS"])):
         inst_env = vst_env.Clone()
         inst_env.Append(CPPDEFINES=defines)
         inst_objs = sdk_objs + [inst_env.SharedObject("objs/vst3/" + name, "#../tests/plugins/gaph_test_vst3_instrument.cpp")]

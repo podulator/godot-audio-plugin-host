@@ -159,6 +159,13 @@ midi.note_on(1, 60, 100, 1.0)
 
 - **Notes** land on the exact sample the driver planned them for. One instrument may listen on several channels.
 - **One instrument, one plugin instance:** players that play the same instrument all hear that one synth, in step to the sample (two 3D players are one synth heard in two places). For two independent synths, use two instruments.
+- **Several outputs:** a plugin with more than one (a drum machine's kick, snare, ...) plays each through a stream of its own, in its own player, on any bus, all in step:
+
+```gdscript
+print(drums.get_output_names())                # ["Main", "Kick", "Snare", ...], the plugin's names
+drums.bind_outputs([$Main, $Kick, $Snare])     # output i to player i, and starts them
+$Hats.stream = drums.get_output(3)             # or one at a time
+```
 - **CLAP** gets notes as CLAP note events where the plugin takes them, otherwise as MIDI 2.0 or MIDI 1.0; controllers, pitch bend, pressure and program changes go as MIDI.
 - **VST3** gets notes as VST3 note events. VST3 has no controller events: controllers, pitch bend, channel pressure and program changes reach the parameters the plugin assigns to them (its MIDI mapping), and do nothing where it assigns none.
 - **The transport:** the plugin follows the driver's tempo and song position, for tempo-synced arpeggiators, LFOs and delays. CLAP gets a loop jump on its sample; VST3 gets the transport once per audio block, so a jump reaches it up to 512 samples later.

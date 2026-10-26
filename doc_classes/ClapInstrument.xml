@@ -16,11 +16,18 @@
 		midi.note_on(1, 60, 100, 1.0)
 		[/codeblock]
 		Notes land on the exact audio sample the driver planned them for, and the plugin follows the driver's tempo and song position (CLAP transport). Notes go to the plugin as CLAP note events where it takes them, otherwise as MIDI 2.0 or MIDI 1.0; controllers, pitch bend, pressure and program always go as MIDI.
-		Players that play the same instrument all hear its one plugin instance, in step to the sample: two [AudioStreamPlayer3D]s are one synth heard in two places. For two independent synths, use two instruments.
+		A plugin with several outputs (a drum machine's kick, snare, ...) plays each through a stream of its own: see [method get_output] and [method bind_outputs]. Players that play the same instrument all hear its one plugin instance, in step to the sample: two [AudioStreamPlayer3D]s are one synth heard in two places. For two independent synths, use two instruments.
 	</description>
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="bind_outputs">
+			<return type="void" />
+			<param index="0" name="players" type="Array" />
+			<description>
+				Output [code]i[/code] to the [code]i[/code]-th player of [param players] (an [AudioStreamPlayer], [AudioStreamPlayer2D] or [AudioStreamPlayer3D] each), and starts each: [code]drums.bind_outputs([$Main, $Kick, $Snare])[/code].
+			</description>
+		</method>
 		<method name="close_editor">
 			<return type="void" />
 			<description>
@@ -37,6 +44,29 @@
 			<return type="String" />
 			<description>
 				Why the plugin did not load, or an empty string.
+			</description>
+		</method>
+		<method name="get_output">
+			<return type="AudioStream" />
+			<param index="0" name="index" type="int" />
+			<description>
+				Output [param index] as an audio stream, to play in a player of its own, on its own bus: 0 is the main output (this instrument itself), 1 and up the plugin's other outputs. All outputs come from the one plugin instance and the same notes, in step to the sample.
+				[codeblock]
+				$Kick.stream = drums.get_output(1)
+				$Kick.play()
+				[/codeblock]
+			</description>
+		</method>
+		<method name="get_output_count">
+			<return type="int" />
+			<description>
+				How many audio outputs the plugin has, the main one included (1 for most instruments; a drum machine may have one per drum).
+			</description>
+		</method>
+		<method name="get_output_names">
+			<return type="PackedStringArray" />
+			<description>
+				The plugin's names for its outputs, the main one first: [code]["Main", "Kick", "Snare"][/code], say.
 			</description>
 		</method>
 		<method name="get_parameter">

@@ -381,6 +381,34 @@ bool ClapProcessor::process(const AudioBlock &p_block) {
 		return false;
 	}
 
+	// An instrument's extra outputs: the non-main output ports, in their order, each to the next
+	// extra output (mono to both sides); one the plugin does not have stays silent.
+	uint32_t extra = 0;
+	for (size_t i = 0; i < outputs.size() && extra < p_block.extra_output_count; i++) {
+		if (int(i) == main_output || outputs[i].channels == 0) {
+			continue;
+		}
+		const Port &port = outputs[i];
+		const uint64_t mask = output_buffers[i].constant_mask;
+		for (uint32_t c = 0; c < 2; c++) {
+			const uint32_t src_c = c < port.channels ? c : port.channels - 1;
+			float *dst = p_block.extra_outputs[extra * 2 + c];
+			if (src_c < 64 && (mask & (uint64_t(1) << src_c))) {
+				const float v = port.ptrs[src_c][0];
+				for (uint32_t f = 0; f < n; f++) {
+					dst[f] = v;
+				}
+			} else {
+				std::memcpy(dst, port.ptrs[src_c], bytes);
+			}
+		}
+		extra++;
+	}
+	for (; extra < p_block.extra_output_count; extra++) {
+		std::memset(p_block.extra_outputs[extra * 2], 0, bytes);
+		std::memset(p_block.extra_outputs[extra * 2 + 1], 0, bytes);
+	}
+
 	// Main output port -> the bus. A mono output goes to both sides (src_c sticks at the last
 	// channel). Channels flagged constant are filled from their first sample, because a plugin
 	// that sets the flag may leave the rest of the buffer unwritten.
@@ -480,6 +508,21 @@ void ClapProcessor::fill_transport(clap_event_transport_t &r_out, int64_t p_stea
 	r_out.bar_number = int32_t(bar);
 	r_out.tsig_num = 4;
 	r_out.tsig_denom = 4;
+}
+
+// MAIN THREAD. The output ports' names, the main one first, then the others in their order (as
+// process() hands them to AudioBlock::extra_outputs).
+std::vector<std::string> ClapProcessor::output_names() const {
+	std::vector<std::string> out;
+	if (main_output >= 0) {
+		out.push_back(output_info[main_output].name);
+	}
+	for (size_t i = 0; i < output_info.size(); i++) {
+		if (int(i) != main_output) {
+			out.push_back(output_info[i].name);
+		}
+	}
+	return out;
 }
 
 uint32_t ClapProcessor::in_events_size(const clap_input_events_t *p_list) {

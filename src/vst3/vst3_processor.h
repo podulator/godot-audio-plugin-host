@@ -70,6 +70,7 @@ public:
 	~Vst3Processor() override;
 
 	bool process(const AudioBlock &p_block) override;
+	std::vector<std::string> output_names() const override;
 	void detach_from_audio() override {} // setProcessing(false) is allowed on the main thread.
 	bool pop_output_param(ParamEvent &r_event) override;
 	void on_param_set(uint32_t p_id, double p_value) override;

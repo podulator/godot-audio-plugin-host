@@ -96,6 +96,7 @@ static void initialize_vst3_host(ModuleInitializationLevel p_level) {
 	GDREGISTER_CLASS(Vst3SidechainSend);
 	GDREGISTER_CLASS(Vst3Instrument);
 	GDREGISTER_INTERNAL_CLASS(Vst3InstrumentPlayback);
+	GDREGISTER_CLASS(Vst3InstrumentOutput);
 	GDREGISTER_INTERNAL_CLASS(Vst3SidechainSendInstance);
 	register_menu_classes();
 }

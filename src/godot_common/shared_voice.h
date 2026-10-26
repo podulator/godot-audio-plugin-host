@@ -43,6 +43,11 @@ namespace gaph_godot {
 
 using namespace godot;
 
+// OUTPUTS
+// A plugin with several outputs (a drum machine's kick, snare, ...) renders all of them in the
+// same block; output 0 is the main one (what the instrument itself plays), output k the plugin's
+// k-th other output. A playback reads one of them, so every output is in step with the others.
+
 // Which mix step a playback's call belongs to: one per playback, AUDIO thread only.
 struct VoiceTap {
 	int64_t request_us = -1; // when the sound card's current request came, in Godot's usec ticks
@@ -57,13 +62,18 @@ public:
 	static constexpr int64_t SAME_REQUEST_US = 2000;
 
 	// MAIN THREAD. A playback starts using the voice (p_tap is its own); the first one plugs the
-	// plugin runtime into the instrument.
-	void join(gaph::HostedEffect &p_hosted, VoiceTap &p_tap) {
+	// plugin runtime into the instrument. p_outputs: how many outputs the plugin has, main included.
+	void join(gaph::HostedEffect &p_hosted, VoiceTap &p_tap, uint32_t p_outputs) {
 		p_tap = VoiceTap{};
 		if (users++ == 0) {
 			runtime.set_sample_rate(AudioServer::get_singleton()->get_mix_rate());
 			silence.assign(size_t(MAX_FRAMES) * 2, 0.0f);
 			block.assign(size_t(MAX_FRAMES) * 2, 0.0f);
+			extra_count = p_outputs > 1 ? std::min(p_outputs - 1, gaph::EffectRuntime::MAX_EXTRA_OUTPUTS) : 0;
+			extra_blocks.assign(size_t(extra_count) * MAX_FRAMES * 2, 0.0f);
+			for (uint32_t k = 0; k < extra_count; k++) {
+				extra_ptrs[k] = extra_blocks.data() + size_t(k) * MAX_FRAMES * 2;
+			}
 			block_frames = 0;
 			block_request_us = -1;
 			block_step = 0;
@@ -80,9 +90,9 @@ public:
 		}
 	}
 
-	// AUDIO THREAD. This step's sound for one playback: the block is rendered by the first
-	// playback mixed in a step, and copied by the others.
-	int32_t mix(VoiceTap &p_tap, AudioFrame *p_buffer, int32_t p_frames) {
+	// AUDIO THREAD. This step's sound of output p_output for one playback: the block is rendered
+	// by the first playback mixed in a step, and copied by the others.
+	int32_t mix(VoiceTap &p_tap, AudioFrame *p_buffer, int32_t p_frames, uint32_t p_output = 0) {
 		const uint32_t n = uint32_t(std::min<int32_t>(p_frames, int32_t(MAX_FRAMES)));
 		const int64_t now = int64_t(Time::get_singleton()->get_ticks_usec());
 		const int64_t request = now - int64_t(std::llround(AudioServer::get_singleton()->get_time_since_last_mix() * 1e6));
@@ -98,7 +108,12 @@ public:
 			block_request_us = p_tap.request_us;
 			block_step = p_tap.step;
 		}
-		std::memcpy(p_buffer, block.data(), sizeof(float) * 2 * n);
+		const float *src = p_output == 0 ? block.data() : (p_output <= extra_count ? extra_ptrs[p_output - 1] : nullptr);
+		if (src) {
+			std::memcpy(p_buffer, src, sizeof(float) * 2 * n);
+		} else {
+			std::memset(p_buffer, 0, sizeof(float) * 2 * n); // an output the plugin does not have
+		}
 		return p_frames;
 	}
 
@@ -108,7 +123,11 @@ private:
 		uint32_t done = 0;
 		while (done < p_frames) {
 			const uint32_t n = std::min(p_frames - done, gaph::EffectRuntime::MAX_BLOCK);
-			runtime.process(silence.data(), block.data() + size_t(done) * 2, n);
+			float *extra_at[gaph::EffectRuntime::MAX_EXTRA_OUTPUTS];
+			for (uint32_t k = 0; k < extra_count; k++) {
+				extra_at[k] = extra_ptrs[k] + size_t(done) * 2;
+			}
+			runtime.process_with_outputs(silence.data(), block.data() + size_t(done) * 2, n, extra_at, extra_count);
 			done += n;
 		}
 		block_frames = p_frames;
@@ -118,7 +137,10 @@ private:
 	gaph::HostedEffect *hosted = nullptr; // the instrument's own, which outlives its playbacks
 	uint32_t users = 0; // MAIN thread: playbacks joined
 	std::vector<float> silence; // the plugin's input: an instrument has none
-	std::vector<float> block; // this step's output, interleaved stereo
+	std::vector<float> block; // this step's main output, interleaved stereo
+	std::vector<float> extra_blocks; // the other outputs, one block each, interleaved stereo
+	float *extra_ptrs[gaph::EffectRuntime::MAX_EXTRA_OUTPUTS] = {};
+	uint32_t extra_count = 0;
 	uint32_t block_frames = 0;
 	int64_t block_request_us = -1; // which step `block` is: request time and step within it
 	uint32_t block_step = 0;

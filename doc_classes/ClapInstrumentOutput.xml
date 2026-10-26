@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ClapInstrumentOutput" inherits="AudioStream" api_type="extension" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		One of a [ClapInstrument]'s outputs beyond the main one, as an audio stream.
+	</brief_description>
+	<description>
+		Made by [method ClapInstrument.get_output] (and [method ClapInstrument.bind_outputs]). Play it in a player of its own, on any bus: it sounds that output of the instrument's plugin, in step with the others.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_index" qualifiers="const">
+			<return type="int" />
+			<description>
+				Which output: 1 and up (0, the main output, is the instrument itself).
+			</description>
+		</method>
+		<method name="get_instrument" qualifiers="const">
+			<return type="ClapInstrument" />
+			<description>
+				The instrument this is an output of.
+			</description>
+		</method>
+	</methods>
+</class>

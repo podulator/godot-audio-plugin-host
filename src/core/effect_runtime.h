@@ -41,6 +41,7 @@ public:
 	static constexpr uint32_t MAX_BLOCK = 512;
 	static constexpr uint32_t MAX_EVENTS_PER_BLOCK = 256;
 	static constexpr uint32_t MAX_PENDING_EVENTS = 1024; // Scheduled for later blocks.
+	static constexpr uint32_t MAX_EXTRA_OUTPUTS = 16; // an instrument's outputs beyond the main one
 
 	// Allocates every buffer up front. After construction, process() never allocates.
 	EffectRuntime();
@@ -90,6 +91,11 @@ public:
 	// The same, with the clock reading passed in: lets tests replay exact timings.
 	void process_at(const float *p_src, float *p_dst, uint32_t p_frames, int64_t p_now_us);
 
+	// AUDIO THREAD, for an instrument: also its extra outputs (AudioBlock::extra_outputs), each
+	// written interleaved to p_extra[k] (p_frames stereo frames each, p_extra_count of them, at
+	// most MAX_EXTRA_OUTPUTS). Silence where the plugin has none, or no plugin runs.
+	void process_with_outputs(const float *p_src, float *p_dst, uint32_t p_frames, float *const *p_extra, uint32_t p_extra_count);
+
 	// ANY THREAD. Total frames seen by process(), with or without a processor. A cheap way to
 	// answer "is this bus running at all?" when debugging.
 	uint64_t get_frames_processed() const { return frames_processed.load(std::memory_order_relaxed); }
@@ -98,6 +104,8 @@ private:
 	void gather_events(uint32_t p_frames);
 	void apply_drop(const ParamEvent &p_drop);
 	void process_chunk(const float *p_src, float *p_dst, uint32_t p_frames, uint32_t p_offset);
+	float *const *extra_dst = nullptr; // this call's extra outputs (process_with_outputs), else nullptr
+	uint32_t extra_dst_count = 0;
 
 	std::atomic<uint64_t> frames_processed{ 0 };
 	std::unique_ptr<PluginProcessor> processor;
@@ -136,6 +144,9 @@ private:
 	std::vector<float> out_storage;
 	float *in_ptrs[CHANNELS] = {};
 	float *out_ptrs[CHANNELS] = {};
+	// The extra outputs, planar: MAX_EXTRA_OUTPUTS x CHANNELS channels of MAX_BLOCK each.
+	std::vector<float> extra_storage;
+	float *extra_ptrs[MAX_EXTRA_OUTPUTS * CHANNELS] = {};
 
 	// The sidechain, read once per Godot block (not per chunk) into planar storage big enough for
 	// any block a channel can hold. Each chunk then gets pointers into its own slice of it.
