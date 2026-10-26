@@ -70,6 +70,8 @@ ClapInstrument::ClapInstrument() :
 }
 
 ClapInstrument::~ClapInstrument() {
+	// The plugin's GUI and its window first, while the instance showing it still exists.
+	editor_window.close(hosted);
 	hosted.set_reference(nullptr); // before the probe it points to goes
 }
 
@@ -177,6 +179,10 @@ void ClapInstrument::connect_idle() {
 
 void ClapInstrument::on_process_frame() {
 	hosted.idle();
+	// After idle(), which may have destroyed the instance showing the GUI: tick() reattaches it.
+	if (editor_window.tick(hosted)) {
+		emit_signal("editor_closed");
+	}
 	const std::string err = hosted.take_error();
 	if (!err.empty()) {
 		UtilityFunctions::push_error("ClapInstrument: ", String::utf8(err.c_str()));
@@ -239,6 +245,39 @@ Dictionary ClapInstrument::get_plugin_info() {
 		}
 	}
 	return d;
+}
+
+// --- The plugin window ------------------------------------------------------------------------
+
+bool ClapInstrument::open_editor() {
+	ensure_loaded();
+	if (!hosted.has_plugin()) {
+		UtilityFunctions::push_error("ClapInstrument: no plugin loaded, so no editor to open");
+		return false;
+	}
+	connect_idle(); // the window is serviced every frame
+	std::string title = "CLAP instrument";
+	const Dictionary info = get_plugin_info();
+	if (info.has("name")) {
+		title = gaph_godot::to_std(String(info["name"])) + " (CLAP)";
+	}
+	std::string err;
+	if (!editor_window.open(hosted, title, err)) {
+		UtilityFunctions::push_warning("ClapInstrument: cannot open the plugin window: ", String::utf8(err.c_str()));
+		return false;
+	}
+	return true;
+}
+
+void ClapInstrument::close_editor() {
+	if (editor_window.is_open()) {
+		editor_window.close(hosted);
+		emit_signal("editor_closed");
+	}
+}
+
+bool ClapInstrument::is_editor_open() const {
+	return editor_window.is_open();
 }
 
 // --- MIDI in ----------------------------------------------------------------------------------
@@ -317,6 +356,10 @@ void ClapInstrument::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("midi_event", "time_us", "source", "kind", "channel", "index", "value", "note_id"), &ClapInstrument::midi_event);
 	ClassDB::bind_method(D_METHOD("midi_stop", "time_us", "source", "mode"), &ClapInstrument::midi_stop);
 	ClassDB::bind_method(D_METHOD("midi_transport", "time_us", "source", "playing", "bpm", "song_beat", "loop_start", "loop_end"), &ClapInstrument::midi_transport);
+	ClassDB::bind_method(D_METHOD("open_editor"), &ClapInstrument::open_editor);
+	ClassDB::bind_method(D_METHOD("close_editor"), &ClapInstrument::close_editor);
+	ClassDB::bind_method(D_METHOD("is_editor_open"), &ClapInstrument::is_editor_open);
+	ADD_SIGNAL(MethodInfo("editor_closed"));
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "plugin_path", PROPERTY_HINT_FILE, "*.clap"), "set_plugin_path", "get_plugin_path");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "plugin_id", PROPERTY_HINT_PLACEHOLDER_TEXT, "first plugin in the file"), "set_plugin_id", "get_plugin_id");
 }

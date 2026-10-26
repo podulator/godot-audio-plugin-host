@@ -99,6 +99,7 @@ static void initialize_clap_host(ModuleInitializationLevel p_level) {
 	// The EDITOR level runs only in the editor, after SCENE: the export step lives there.
 	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
 		GDREGISTER_INTERNAL_CLASS(ClapExportPlugin);
+		GDREGISTER_INTERNAL_CLASS(ClapInstrumentInspector);
 		GDREGISTER_INTERNAL_CLASS(ClapEditorPlugin);
 		EditorPlugins::add_by_type<ClapEditorPlugin>();
 		return;

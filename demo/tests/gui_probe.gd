@@ -1,15 +1,17 @@
 @tool
 extends Node
 # Opens a plugin's window inside the real editor (via tests/editor_probe.sh), keeps it open for a
-# while, and closes it. Environment: GUIPROBE_PLUGIN (path), GUIPROBE_FORMAT (clap|vst3),
-# GUIPROBE_SECONDS. Opens a REAL window on the user's screen: ask first.
+# while, and closes it. Environment: GUIPROBE_PLUGIN (path), GUIPROBE_FORMAT (clap|vst3|clap_instrument),
+# GUIPROBE_SECONDS. Opens a REAL window: on the user's screen unless DISPLAY points elsewhere (Xvfb), so ask first.
 
 func _ready() -> void:
 	if not Engine.is_editor_hint():
 		return
 	await get_tree().process_frame
 	var path := OS.get_environment("GUIPROBE_PLUGIN")
-	var fx: AudioEffect = ClapPluginEffect.new() if OS.get_environment("GUIPROBE_FORMAT") != "vst3" else Vst3PluginEffect.new()
+	var format := OS.get_environment("GUIPROBE_FORMAT")
+	# clap, vst3, or clap_instrument: a ClapInstrument, whose window works the same way.
+	var fx: Resource = ClapInstrument.new() if format == "clap_instrument" else (Vst3PluginEffect.new() if format == "vst3" else ClapPluginEffect.new())
 	fx.plugin_path = path if path != "" else "/usr/lib/clap/DragonflyHallReverb.clap"
 	fx.editor_closed.connect(func(): print("GUIPROBE editor_closed signal"))
 	var t0 := Time.get_ticks_msec()

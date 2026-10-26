@@ -70,6 +70,14 @@ echo "[export, end to end: debug]"
 echo "[export, end to end: release]"
 "$root/.venv/bin/scons" -C "$root" platform=linux target=template_release -j"$(nproc)" -Q > /dev/null
 EXPORT_MODE=release "$root/tests/export/run.sh"
+echo "[real editor: a ClapInstrument's inspector has an Open Plugin Window button]"
+inspector=$("$root/tests/editor_probe.sh" res://tests/inspector_probe.gd -u DISPLAY INSPECTORPROBE_PLUGIN="$own/gaph_test_instrument.clap" | grep INSPECTORPROBE || true)
+if [ "$inspector" = "INSPECTORPROBE button=true loaded=true" ]; then
+	echo "INSPECTOR OK: the instrument's window button is there"
+else
+	echo "FAIL  instrument inspector: ${inspector:-no answer from the editor}"
+	exit 1
+fi
 echo "[real editor: Add Effect menu]"
 # "|| true" on these captures: an empty result is reported by the check after each, with a message.
 menu=$("$root/tests/editor_probe.sh" res://tests/menu_probe.gd CLAP_PATH="$own" GAPH_VST3_PATH="$own" | grep MENUPROBE || true)

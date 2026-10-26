@@ -16,11 +16,17 @@
 		midi.note_on(1, 60, 100, 1.0)
 		[/codeblock]
 		Notes land on the exact audio sample the driver planned them for, and the plugin follows the driver's tempo and song position (CLAP transport). Notes go to the plugin as CLAP note events where it takes them, otherwise as MIDI 2.0 or MIDI 1.0; controllers, pitch bend, pressure and program always go as MIDI.
-		One playback at a time: keep the player's [member AudioStreamPlayer.max_polyphony] at 1, as every playback gets every note. Plugin windows and saved plugin state are not there yet.
+		One playback at a time: keep the player's [member AudioStreamPlayer.max_polyphony] at 1, as every playback gets every note. Saved plugin state is not there yet.
 	</description>
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="close_editor">
+			<return type="void" />
+			<description>
+				Closes the plugin's window.
+			</description>
+		</method>
 		<method name="get_frames_processed">
 			<return type="int" />
 			<description>
@@ -50,6 +56,12 @@
 			<return type="Dictionary" />
 			<description>
 				The plugin's [code]id[/code], [code]name[/code], [code]vendor[/code] and [code]version[/code].
+			</description>
+		</method>
+		<method name="is_editor_open" qualifiers="const">
+			<return type="bool" />
+			<description>
+				[code]true[/code] while the plugin's window is open.
 			</description>
 		</method>
 		<method name="is_plugin_loaded">
@@ -93,6 +105,12 @@
 				A [MidiDriver] target method: the driver's transport, which the plugin receives as CLAP transport information, so tempo-synced arpeggiators, LFOs and delays follow the song, to the sample.
 			</description>
 		</method>
+		<method name="open_editor">
+			<return type="bool" />
+			<description>
+				Opens the plugin's own window, as for [ClapPluginEffect] (editor only). The inspector's [b]Open Plugin Window[/b] button does the same.
+			</description>
+		</method>
 		<method name="set_parameter">
 			<return type="void" />
 			<param index="0" name="id" type="int" />
@@ -110,4 +128,11 @@
 			The [code].clap[/code] file: relative to a plugin folder, [code]res://[/code] or absolute, as for [ClapPluginEffect].
 		</member>
 	</members>
+	<signals>
+		<signal name="editor_closed">
+			<description>
+				Emitted when the plugin's window closes: by the user, by the plugin, or by [method close_editor].
+			</description>
+		</signal>
+	</signals>
 </class>

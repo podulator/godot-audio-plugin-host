@@ -22,12 +22,16 @@
 //   midi_stop(time_us, source, mode): the audio side drops that source's events from time_us on;
 //   which notes still sound then is worked out here, on the main thread (core/midi_target.h), and
 //   they get a note-off (RELEASE) or a choke (CUT) at time_us.
+//
+// THE PLUGIN WINDOW works exactly as an effect's (godot_common/editor_window.h): editor only,
+// opened by open_editor() or the inspector's "Open Plugin Window" button (clap_editor_plugin.h).
 
 #include "clap_library.h"
 #include "clap_processor.h"
 #include "core/effect_runtime.h"
 #include "core/hosted_effect.h"
 #include "core/midi_target.h"
+#include "godot_common/editor_window.h"
 
 #include <godot_cpp/classes/audio_stream.hpp>
 #include <godot_cpp/classes/audio_stream_playback.hpp>
@@ -82,6 +86,12 @@ public:
 	double get_parameter(int64_t p_id);
 	Dictionary get_plugin_info();
 
+	// The plugin's own window (editor only), as for effects: godot_common/editor_window.h. The
+	// GUI shows on the running playback if there is one, else on the probe.
+	bool open_editor();
+	void close_editor();
+	bool is_editor_open() const;
+
 	// The MidiDriver target protocol.
 	void midi_event(int64_t p_time_us, int64_t p_source, int p_kind, int p_channel, int p_index, int64_t p_value, int64_t p_note_id);
 	void midi_stop(int64_t p_time_us, int64_t p_source, int p_mode);
@@ -116,6 +126,7 @@ private:
 	// running instances (HostedEffect's registry).
 	mutable gaph::HostedEffect hosted;
 	gaph::midi::NoteBook notes;
+	gaph_godot::EditorWindow editor_window;
 };
 
 } // namespace godot
