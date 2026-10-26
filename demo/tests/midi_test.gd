@@ -20,6 +20,7 @@ func _ready() -> void:
 	await _test_grid_and_handles()
 	await _test_pause_resume()
 	await _test_signals()
+	await _test_transport()
 	print("MIDI %s" % ("OK" if failures == 0 else "FAILED (%d)" % failures))
 	get_tree().quit(1 if failures else 0)
 
@@ -137,4 +138,25 @@ func _test_signals() -> void:
 	midi.stop()
 	var want: Array[String] = ["started", "paused 0.5", "resumed 0.5", "position 8.0", "tempo 240", "position 8.0", "stopped"]
 	_check(got == want, "transport signals in order (%s)" % [got])
+	midi.queue_free()
+
+
+# Targets with midi_transport hear the transport: told at once when bound, then at play, pause
+# (with the song position) and tempo changes.
+func _test_transport() -> void:
+	var midi := MidiDriver.create(1)
+	add_child(midi)
+	var rec := Recorder.new()
+	midi.set_channel_target(1, rec)
+	_check(rec.transports.size() == 1 and not rec.transports[0].playing, "a new target is told the transport at once")
+	midi.play()
+	await _frames(0.25)
+	midi.pause()
+	midi.bpm = 90
+	var t := rec.transports
+	_check(t.size() == 4, "play, pause and tempo each send a snapshot (%d)" % t.size())
+	if t.size() == 4:
+		_check(t[1].playing and t[1].song_beat == 0.0 and t[1].bpm == 120.0, "play: playing from beat 0 at 120 bpm")
+		_check(not t[2].playing and absf(t[2].song_beat - 0.5) < 0.05, "pause: stopped at about beat 0.5 (%.3f)" % t[2].song_beat)
+		_check(t[3].bpm == 90.0 and t[3].source == midi.get_instance_id(), "tempo: 90 bpm, from this driver")
 	midi.queue_free()

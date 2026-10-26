@@ -9,6 +9,8 @@
 // A target is any object with two methods (it may live in another extension, or be a script):
 //   midi_event(time_us, source, kind, channel, index, value, note_id)
 //   midi_stop(time_us, source, mode)
+// and optionally a third, to follow the transport (an instrument passes it on to its plugin):
+//   midi_transport(time_us, source, playing, bpm, song_beat, loop_start, loop_end)
 // time_us is on gaph::host_time_us()'s clock (get_time_us() here), and the event is heard one
 // audio block after it. Values arrive at MIDI 2.0 resolution whatever the driver's version.
 //
@@ -130,6 +132,7 @@ private:
 	void stop(uint64_t p_target, int64_t p_time_us, gaph::midi::StopMode p_mode) override;
 	void beat(int64_t p_running_beat, double p_song_beat) override;
 	void looped(double p_running, double p_song_beat) override;
+	void transport(uint64_t p_target, int64_t p_time_us, const gaph::midi::TransportInfo &p_info) override;
 
 	bool check_channel(int p_channel) const;
 	bool check_7bit(int p_value, const char *p_what) const;

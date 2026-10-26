@@ -237,7 +237,7 @@ void MidiDriver::set_channel_target(int p_channel, Object *p_target) {
 	}
 	ERR_FAIL_COND_MSG(p_target && !p_target->has_method("midi_event"),
 			"MidiDriver: a target needs midi_event(time_us, source, kind, channel, index, value, note_id) and midi_stop(time_us, source, mode).");
-	seq.set_channel_target(p_channel, p_target ? uint64_t(p_target->get_instance_id()) : 0);
+	seq.set_channel_target(p_channel, p_target ? uint64_t(p_target->get_instance_id()) : 0, get_time_us());
 }
 
 Object *MidiDriver::get_channel_target(int p_channel) const {
@@ -266,6 +266,17 @@ void MidiDriver::stop(uint64_t p_target, int64_t p_time_us, gaph::midi::StopMode
 
 void MidiDriver::beat(int64_t p_running_beat, double p_song_beat) {
 	emit_signal("beat", p_running_beat, p_song_beat);
+}
+
+// Optional for targets: one without midi_transport (a GDScript synth with no tempo-synced parts,
+// say) is simply not told. loop_end <= loop_start means no loop.
+void MidiDriver::transport(uint64_t p_target, int64_t p_time_us, const gaph::midi::TransportInfo &p_info) {
+	Object *t = ObjectDB::get_instance(ObjectID(p_target));
+	if (!t || !t->has_method("midi_transport")) {
+		return;
+	}
+	t->call("midi_transport", p_time_us, int64_t(get_instance_id()), p_info.playing, p_info.bpm, p_info.song_beat,
+			p_info.looping ? p_info.loop_start : 0.0, p_info.looping ? p_info.loop_end : 0.0);
 }
 
 void MidiDriver::looped(double, double p_song_beat) {
