@@ -21,6 +21,12 @@ func _ready() -> void:
 	else:
 		_skip("test plugin not built at " + path)
 	print("VST3 %s (%d skipped)" % ["OK" if failures == 0 else "FAILED (%d)" % failures, skipped])
+	# Stopped, and let go, before quitting: the audio server drops a stopped playback on its
+	# next update, which a quit straight away never reaches, so it showed as leaked at exit.
+	if player:
+		player.stop()
+	playback = null
+	await get_tree().create_timer(0.1).timeout
 	get_tree().quit(1 if failures else 0)
 
 

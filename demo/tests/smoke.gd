@@ -3,9 +3,7 @@ extends Node
 #   godot --headless --path demo res://tests/smoke.tscn
 # Both extensions load side by side, both effects sit on one bus with no plugin loaded, and a
 # sine played through that bus must come out of an AudioEffectCapture unchanged.
-#
-# "1 ObjectDB instance was leaked at exit" is Godot's own AudioStreamGeneratorPlayback, and
-# appears with no extension loaded at all (checked against Godot 4.7 with built-in effects).
+
 
 const RATE := 44100.0
 const FREQ := 440.0
@@ -14,6 +12,7 @@ var clap_fx: AudioEffect
 var vst3_fx: AudioEffect
 var capture: AudioEffectCapture
 var playback: AudioStreamGeneratorPlayback
+var player: AudioStreamPlayer
 var phase := 0.0
 var elapsed := 0.0
 var captured := PackedVector2Array()
@@ -40,7 +39,7 @@ func _ready() -> void:
 	var gen := AudioStreamGenerator.new()
 	gen.mix_rate = RATE
 	gen.buffer_length = 0.5
-	var player := AudioStreamPlayer.new()
+	player = AudioStreamPlayer.new()
 	player.stream = gen
 	player.bus = "PluginTest"
 	add_child(player)
@@ -96,4 +95,10 @@ func _check(ok: bool, what: String) -> void:
 
 func _finish() -> void:
 	print("SMOKE %s" % ("OK" if failures == 0 else "FAILED (%d)" % failures))
+	# Stopped, and let go, before quitting: the audio server drops a stopped playback on its
+	# next update, which a quit straight away never reaches, so it showed as leaked at exit.
+	if player:
+		player.stop()
+	playback = null
+	await get_tree().create_timer(0.1).timeout
 	get_tree().quit(1 if failures else 0)
