@@ -47,6 +47,7 @@ func _ready() -> void:
 		if DirAccess.dir_exists_absolute(vst3_drums):
 			await _test_outputs(vst3_drums, "", "VST3")
 	await _test_saving(path, "CLAP")
+	_test_scan(path.get_base_dir())
 	print("INSTRUMENT %s" % ("OK" if failures == 0 else "FAILED (%d)" % failures))
 	get_tree().quit(1 if failures else 0)
 
@@ -454,3 +455,30 @@ func _test_sleep(path: String) -> void:
 	_check(inst.is_plugin_sleeping(), "and it sleeps again after")
 	inst.set_parameter(1, 1.0)
 	await _unrig(r)
+
+
+
+# scan_plugins() on the instrument classes, as the effects have: only instruments, each of which
+# loads as one. Our own plugins' folder is passed in; installed ones may show up too.
+func _test_scan(dir: String) -> void:
+	for vst3 in [false, true]:
+		var format := "VST3" if vst3 else "CLAP"
+		var found: Array = Vst3Instrument.scan_plugins([dir]) if vst3 else ClapInstrument.scan_plugins([dir])
+		var names := found.map(func(d): return d.get("name", ""))
+		var want := ["GAPH Test VST3 Instrument", "GAPH Test VST3 Drums"] if vst3 else ["GAPH Test Instrument", "GAPH Test Drums"]
+		for w in want:
+			_check(w in names, "%s scan_plugins() lists %s" % [format, w])
+		_check(not names.any(func(n): return n.contains("Gain") or n == "GAPH Test VST3" or n == "GAPH Test Plugin"), "%s scan_plugins() leaves effects out (%s)" % [format, ", ".join(names)])
+		var all_load := true
+		for d in found:
+			if d.has("error"):
+				continue
+			var inst: AudioStream = Vst3Instrument.new() if vst3 else ClapInstrument.new()
+			inst.plugin_path = d.path
+			inst.plugin_id = d.id
+			if not inst.is_plugin_loaded():
+				all_load = false
+				print("      %s did not load: %s" % [d.name, inst.get_load_error()])
+		_check(all_load, "%s: every instrument it lists loads as an instrument (%d)" % [format, found.size()])
+	var effects := Vst3PluginEffect.scan_plugins([dir]).map(func(d): return d.get("name", ""))
+	_check(not effects.any(func(n): return n.contains("Instrument") or n.contains("Drums")), "Vst3PluginEffect.scan_plugins() still lists effects only (%s)" % ", ".join(effects))

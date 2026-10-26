@@ -147,6 +147,14 @@
 				Opens the plugin's own window, as for [ClapPluginEffect] (editor only). The inspector's [b]Open Plugin Window[/b] button does the same.
 			</description>
 		</method>
+		<method name="scan_plugins" qualifiers="static">
+			<return type="Dictionary[]" />
+			<param index="0" name="extra_dirs" type="PackedStringArray" default="PackedStringArray()" />
+			<description>
+				Returns every CLAP instrument found in [param extra_dirs] and the plugin folders, in the same form as [method ClapPluginEffect.scan_plugins]: a [Dictionary] each with [code]path[/code], [code]id[/code], [code]name[/code], [code]vendor[/code], [code]version[/code], [code]description[/code] and [code]features[/code], or with [code]path[/code] and [code]error[/code] for a file that could not be loaded. Only plugins with the [code]instrument[/code] feature are listed. To play one, set [member plugin_path] and [member plugin_id] from its entry.
+				[b]Note:[/b] CLAP has no separate metadata files, so this loads every plugin binary to ask it. Call it from a menu, not every frame.
+			</description>
+		</method>
 		<method name="set_parameter">
 			<return type="void" />
 			<param index="0" name="id" type="int" />

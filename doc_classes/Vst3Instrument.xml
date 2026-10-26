@@ -144,6 +144,13 @@
 				Opens the plugin's own window, as for [Vst3PluginEffect] (editor only). The inspector's [b]Open Plugin Window[/b] button does the same.
 			</description>
 		</method>
+		<method name="scan_plugins" qualifiers="static">
+			<return type="Dictionary[]" />
+			<param index="0" name="extra_dirs" type="PackedStringArray" default="PackedStringArray()" />
+			<description>
+				Returns every VST3 instrument found in [param extra_dirs] and the plugin folders, in the same form as [method Vst3PluginEffect.scan_plugins], which lists the effects. A class marked both instrument and effect is in both lists. To play one, set [member plugin_path] and [member plugin_id] from its entry.
+			</description>
+		</method>
 		<method name="set_parameter">
 			<return type="void" />
 			<param index="0" name="id" type="int" />

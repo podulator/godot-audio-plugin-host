@@ -73,6 +73,7 @@ public:
 	void set_param_values(const Dictionary &p_values);
 	Dictionary get_param_values();
 	int64_t get_frames_processed();
+	static TypedArray<Dictionary> scan_plugins(const PackedStringArray &p_extra_dirs);
 	bool is_plugin_sleeping(); // see ClapProcessor's SLEEP: an idle plugin is not called
 
 	// Outputs: a plugin with several (a drum machine's kick, snare, ...) plays each through a

@@ -121,6 +121,7 @@ public:
 	gaph_godot::SharedVoice &get_voice() { return voice; }
 	uint32_t output_count() const { return output_names.size() > 0 ? uint32_t(output_names.size()) : 1; }
 	int64_t get_frames_processed();
+	static TypedArray<Dictionary> scan_plugins(const PackedStringArray &p_extra_dirs);
 	bool is_plugin_sleeping(); // see ClapProcessor's SLEEP: an idle plugin is not called
 
 protected:

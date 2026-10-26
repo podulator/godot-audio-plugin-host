@@ -98,6 +98,9 @@ public:
 	int get_spare_instances() const;
 	int64_t get_frames_processed();
 	static TypedArray<Dictionary> scan_plugins(const PackedStringArray &p_extra_dirs);
+	// The scan behind scan_plugins() (every plugin) and ClapInstrument::scan_plugins()
+	// (p_instruments_only: those with the "instrument" feature).
+	static TypedArray<Dictionary> scan(const PackedStringArray &p_extra_dirs, bool p_instruments_only);
 
 	gaph::HostedEffect &get_hosted() { return hosted; }
 	void ensure_loaded();

@@ -69,7 +69,7 @@ print(fx.get_parameter_text(size))            # the plugin's own text, e.g. "40 
 
 fx.set_parameter_at(size, 10.0, 0.5)          # in half a second, on the exact sample
 
-for p in ClapPluginEffect.scan_plugins():     # every effect in the plugin folders
+for p in ClapPluginEffect.scan_plugins():     # every plugin in the plugin folders
     print(p.name, "  ", p.path)
 ```
 
@@ -159,6 +159,7 @@ midi.set_channel_target(1, synth)
 midi.note_on(1, 60, 100, 1.0)
 ```
 
+- **Finding instruments:** `ClapInstrument.scan_plugins()` and `Vst3Instrument.scan_plugins()` list the installed instruments (name, vendor, `path`, `id`, ...), as the effect classes' `scan_plugins()` do, for a game that lets the player pick a synth: set `plugin_path` and `plugin_id` from an entry.
 - **Notes** land on the exact sample the driver planned them for. One instrument may listen on several channels.
 - **One instrument, one plugin instance:** players that play the same instrument all hear that one synth, in step to the sample (two 3D players are one synth heard in two places). For two independent synths, use two instruments.
 - **Several outputs:** a plugin with more than one (a drum machine's kick, snare, ...) plays each through a stream of its own, in its own player, on any bus, all in step:

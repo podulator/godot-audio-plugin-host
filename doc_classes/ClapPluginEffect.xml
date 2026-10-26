@@ -111,7 +111,7 @@
 			<return type="Dictionary[]" />
 			<param index="0" name="extra_dirs" type="PackedStringArray" default="PackedStringArray()" />
 			<description>
-				Returns every CLAP plugin found in [param extra_dirs] and the plugin folders (see the class description), as a [Dictionary] each with [code]path[/code], [code]id[/code], [code]name[/code], [code]vendor[/code], [code]version[/code], [code]description[/code] and [code]features[/code]. A file that could not be loaded is listed with [code]path[/code] and [code]error[/code] instead.
+				Returns every CLAP plugin found in [param extra_dirs] and the plugin folders (see the class description), as a [Dictionary] each with [code]path[/code], [code]id[/code], [code]name[/code], [code]vendor[/code], [code]version[/code], [code]description[/code] and [code]features[/code]. A file that could not be loaded is listed with [code]path[/code] and [code]error[/code] instead. Instruments are included (their [code]features[/code] contain [code]"instrument"[/code]); [method ClapInstrument.scan_plugins] lists only those.
 				[b]Note:[/b] CLAP has no separate metadata files, so this loads every plugin binary to ask it. Call it from a menu, not every frame.
 			</description>
 		</method>

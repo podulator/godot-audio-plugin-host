@@ -1,4 +1,5 @@
 #include "vst3_instrument.h"
+#include "vst3_plugin_effect.h"
 
 #include "godot_common/param_properties.h"
 #include "godot_common/plugin_paths.h"
@@ -185,6 +186,11 @@ Ref<AudioStreamPlayback> Vst3Instrument::_instantiate_playback() const {
 
 bool Vst3Instrument::is_plugin_sleeping() {
 	return hosted.is_sleeping();
+}
+
+// The installed instruments, in the same form as Vst3PluginEffect.scan_plugins() (which lists effects).
+TypedArray<Dictionary> Vst3Instrument::scan_plugins(const PackedStringArray &p_extra_dirs) {
+	return Vst3PluginEffect::scan(p_extra_dirs, true);
 }
 
 int64_t Vst3Instrument::get_frames_processed() {
@@ -381,6 +387,7 @@ void Vst3Instrument::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_parameter", "id"), &Vst3Instrument::get_parameter);
 	ClassDB::bind_method(D_METHOD("get_plugin_info"), &Vst3Instrument::get_plugin_info);
 	ClassDB::bind_method(D_METHOD("get_frames_processed"), &Vst3Instrument::get_frames_processed);
+	ClassDB::bind_static_method("Vst3Instrument", D_METHOD("scan_plugins", "extra_dirs"), &Vst3Instrument::scan_plugins, DEFVAL(PackedStringArray()));
 	ClassDB::bind_method(D_METHOD("is_plugin_sleeping"), &Vst3Instrument::is_plugin_sleeping);
 	ClassDB::bind_method(D_METHOD("midi_event", "time_us", "source", "kind", "channel", "index", "value", "note_id"), &Vst3Instrument::midi_event);
 	ClassDB::bind_method(D_METHOD("midi_stop", "time_us", "source", "mode"), &Vst3Instrument::midi_stop);

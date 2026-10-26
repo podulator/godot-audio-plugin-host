@@ -426,6 +426,10 @@ int64_t ClapPluginEffect::get_frames_processed() {
 // to read its descriptors, then unloads it again when `lib` goes out of scope. That can take a
 // while with many plugins installed; call it from a menu, not every frame.
 TypedArray<Dictionary> ClapPluginEffect::scan_plugins(const PackedStringArray &p_extra_dirs) {
+	return scan(p_extra_dirs, false);
+}
+
+TypedArray<Dictionary> ClapPluginEffect::scan(const PackedStringArray &p_extra_dirs, bool p_instruments_only) {
 	std::vector<std::string> dirs;
 	for (int i = 0; i < p_extra_dirs.size(); i++) {
 		dirs.push_back(to_std(p_extra_dirs[i]));
@@ -445,6 +449,13 @@ TypedArray<Dictionary> ClapPluginEffect::scan_plugins(const PackedStringArray &p
 			continue;
 		}
 		for (const clap_plugin_descriptor_t *desc : lib->get_descriptors()) {
+			bool instrument = false;
+			for (const char *const *f = desc->features; f && *f; f++) {
+				instrument = instrument || std::string(*f) == CLAP_PLUGIN_FEATURE_INSTRUMENT;
+			}
+			if (p_instruments_only && !instrument) {
+				continue;
+			}
 			Dictionary d = describe(desc);
 			d["path"] = String::utf8(path.c_str());
 			out.push_back(d);

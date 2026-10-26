@@ -425,6 +425,10 @@ int64_t Vst3PluginEffect::get_frames_processed() {
 // loading their binary at all; the rest are loaded to ask them ("from_moduleinfo" says which).
 // Instruments are left out either way; see vst3_module.cpp.
 TypedArray<Dictionary> Vst3PluginEffect::scan_plugins(const PackedStringArray &p_extra_dirs) {
+	return scan(p_extra_dirs, false);
+}
+
+TypedArray<Dictionary> Vst3PluginEffect::scan(const PackedStringArray &p_extra_dirs, bool p_instruments) {
 	std::vector<std::string> dirs;
 	for (int i = 0; i < p_extra_dirs.size(); i++) {
 		dirs.push_back(to_std(p_extra_dirs[i]));
@@ -445,7 +449,7 @@ TypedArray<Dictionary> Vst3PluginEffect::scan_plugins(const PackedStringArray &p
 			continue;
 		}
 		for (const gaph::Vst3EffectEntry &e : found) {
-			if (!e.effect) {
+			if (p_instruments ? !e.instrument : !e.effect) {
 				continue;
 			}
 			Dictionary d;

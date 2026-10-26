@@ -99,6 +99,9 @@ public:
 	int get_spare_instances() const;
 	int64_t get_frames_processed();
 	static TypedArray<Dictionary> scan_plugins(const PackedStringArray &p_extra_dirs);
+	// The scan behind scan_plugins() (effects) and Vst3Instrument::scan_plugins()
+	// (p_instruments: instruments instead).
+	static TypedArray<Dictionary> scan(const PackedStringArray &p_extra_dirs, bool p_instruments);
 
 	gaph::HostedEffect &get_hosted() { return hosted; }
 	void ensure_loaded();
