@@ -110,6 +110,16 @@ def build_extension(name, source_dirs, extra_cpppath=(), extra_sources=(), extra
     else:
         target = "{}/lib{}{}{}".format(outdir, name, env["suffix"], env["SHLIBSUFFIX"])
     library = lib_env.SharedLibrary(target, source=sources)
+    # ELF platforms (Linux, Android): export ONLY the entry point Godot looks up. godot-cpp links
+    # the C++ standard library in statically, and without this all of it was exported too (4488
+    # symbols for clap_host), some STB_GNU_UNIQUE (locale ids, stream guards), which the loader
+    # merges process-wide: a plugin built against the system's libstdc++ could end up partly on
+    # our copy. Godot needs nothing but the entry point.
+    if env["platform"] in ("linux", "android"):
+        version_script = lib_env.Textfile("build/{}.{}.{}.map".format(name, env["platform"], env["arch"]),
+                ["{ global: " + name + "_library_init; local: *; };"])
+        lib_env.Append(LINKFLAGS=["-Wl,--version-script=" + version_script[0].abspath])
+        lib_env.Depends(library, version_script)
     Default(library)
     if env["platform"] == "macos":
         Default(macos_info_plist(target.rsplit("/", 1)[0], target.rsplit("/", 1)[1]))
