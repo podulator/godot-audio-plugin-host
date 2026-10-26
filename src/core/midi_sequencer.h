@@ -41,6 +41,8 @@ struct Sink {
 	virtual void stop(uint64_t p_target, int64_t p_time_us, StopMode p_mode) = 0;
 	// A running beat was crossed; p_song_beat is the song position there (loops fold it back).
 	virtual void beat(int64_t p_running_beat, double p_song_beat) = 0;
+	// The song passed the loop's end at running position p_running and went back to p_song_beat.
+	virtual void looped(double p_running, double p_song_beat) = 0;
 };
 
 // A note's life, as the driver knows it.
@@ -180,6 +182,7 @@ public:
 		}
 		clock.play(p_now_us);
 		last_beat = int64_t(std::ceil(clock.running_at(p_now_us))) - 1;
+		last_running = clock.running_at(p_now_us);
 		tick(p_now_us);
 	}
 
@@ -206,7 +209,10 @@ public:
 		take_back(p_now_us, StopMode::RELEASE, false);
 		end_all_notes();
 		clock.seek(p_song, p_now_us);
+		last_running = clock.running_at(p_now_us);
 	}
+
+	bool is_paused() const { return paused; }
 
 	// A new tempo from now. Events already handed out were timed for the old one: they are
 	// withdrawn (sounding notes go on) and handed out again with new times.
@@ -234,11 +240,18 @@ public:
 				schedule.erase(schedule.begin());
 				dispatch(e, std::max(p_now_us, clock.time_of(r)), r);
 			}
-			const int64_t beat_now = int64_t(std::floor(clock.running_at(p_now_us)));
+			const double running_now = clock.running_at(p_now_us);
+			const int64_t beat_now = int64_t(std::floor(running_now));
 			while (last_beat < beat_now) {
 				last_beat++;
 				sink.beat(last_beat, clock.song_at(double(last_beat)));
 			}
+			// Loop jumps since the last tick (one, or several after a long frame).
+			for (double jump = clock.next_loop_jump_after(last_running); !std::isnan(jump) && jump <= running_now;
+					jump = clock.next_loop_jump_after(jump)) {
+				sink.looped(jump, clock.get_loop_start());
+			}
+			last_running = running_now;
 		}
 		while (!free_schedule.empty() && free_schedule.begin()->first.first <= p_now_us + lookahead_us) {
 			const int64_t t = free_schedule.begin()->first.first;
@@ -294,6 +307,7 @@ private:
 	std::vector<uint64_t> targets_used; // every target ever sent to: a stop goes to all of them
 	bool paused = false;
 	int64_t last_beat = -1;
+	double last_running = 0; // the running position at the last tick, for spotting loop jumps
 
 	void plan(const Event &p_event, double p_r) { schedule.emplace(std::make_pair(p_r, next_seq++), p_event); }
 	void free_plan(const Event &p_event, int64_t p_time_us) { free_schedule.emplace(std::make_pair(p_time_us, next_seq++), p_event); }

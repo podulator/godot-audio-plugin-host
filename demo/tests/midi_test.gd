@@ -19,6 +19,7 @@ func _ready() -> void:
 	_test_values()
 	await _test_grid_and_handles()
 	await _test_pause_resume()
+	await _test_signals()
 	print("MIDI %s" % ("OK" if failures == 0 else "FAILED (%d)" % failures))
 	get_tree().quit(1 if failures else 0)
 
@@ -111,3 +112,29 @@ func _test_pause_resume() -> void:
 		_check(abs(gap - (BEAT_US + paused_for)) < 1000, "a beat of music apart, plus the pause (%d us, want %d)" % [gap, BEAT_US + paused_for])
 	midi.queue_free()
 
+
+
+# The transport's signals, each after its change: started, paused and resumed with the song
+# position, position_changed on a seek and at each loop jump, tempo_changed, stopped.
+func _test_signals() -> void:
+	var midi := MidiDriver.create(1)
+	add_child(midi)
+	var got: Array[String] = []
+	midi.started.connect(func() -> void: got.append("started"))
+	midi.paused.connect(func(b: float) -> void: got.append("paused %.1f" % b))
+	midi.resumed.connect(func(b: float) -> void: got.append("resumed %.1f" % b))
+	midi.stopped.connect(func() -> void: got.append("stopped"))
+	midi.position_changed.connect(func(b: float) -> void: got.append("position %.1f" % b))
+	midi.tempo_changed.connect(func(bpm: float) -> void: got.append("tempo %d" % bpm))
+	midi.play()
+	await _frames(0.25)
+	midi.pause()
+	midi.play()
+	midi.seek(8.0)
+	midi.bpm = 240 # 250 ms a beat
+	midi.set_loop(8.0, 9.0) # one beat, from where the song is now
+	await _frames(0.4) # past the loop's end once
+	midi.stop()
+	var want: Array[String] = ["started", "paused 0.5", "resumed 0.5", "position 8.0", "tempo 240", "position 8.0", "stopped"]
+	_check(got == want, "transport signals in order (%s)" % [got])
+	midi.queue_free()

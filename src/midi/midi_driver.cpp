@@ -69,7 +69,11 @@ void MidiDriver::set_midi_version(int p_version) {
 
 void MidiDriver::set_bpm(double p_bpm) {
 	ERR_FAIL_COND_MSG(!(p_bpm > 0), "MidiDriver: bpm must be above 0.");
+	if (p_bpm == seq.transport().get_bpm()) {
+		return;
+	}
 	seq.set_bpm(p_bpm, get_time_us());
+	emit_signal("tempo_changed", p_bpm);
 }
 double MidiDriver::get_bpm() const { return seq.transport().get_bpm(); }
 
@@ -173,11 +177,42 @@ void MidiDriver::all_notes_off(double p_at) {
 
 // --- The transport -------------------------------------------------------------------------------
 
-void MidiDriver::play() { seq.play(get_time_us()); }
-void MidiDriver::pause() { seq.pause(get_time_us()); }
-void MidiDriver::stop() { seq.stop(get_time_us()); }
-void MidiDriver::panic() { seq.panic(get_time_us()); }
-void MidiDriver::seek(double p_song_beat) { seq.seek(p_song_beat, get_time_us()); }
+// Each transport call emits its signal after the change, so a handler sees the new state.
+void MidiDriver::play() {
+	if (seq.transport().is_playing()) {
+		return;
+	}
+	const bool resuming = seq.is_paused();
+	seq.play(get_time_us());
+	if (resuming) {
+		emit_signal("resumed", get_position());
+	} else {
+		emit_signal("started");
+	}
+}
+
+void MidiDriver::pause() {
+	if (!seq.transport().is_playing()) {
+		return;
+	}
+	seq.pause(get_time_us());
+	emit_signal("paused", get_position());
+}
+
+void MidiDriver::stop() {
+	seq.stop(get_time_us());
+	emit_signal("stopped");
+}
+
+void MidiDriver::panic() {
+	seq.panic(get_time_us());
+	emit_signal("stopped");
+}
+
+void MidiDriver::seek(double p_song_beat) {
+	seq.seek(p_song_beat, get_time_us());
+	emit_signal("position_changed", p_song_beat);
+}
 void MidiDriver::set_loop(double p_start, double p_end) {
 	ERR_FAIL_COND_MSG(!(p_end > p_start), "MidiDriver: a loop must end after it starts (clear_loop() turns looping off).");
 	seq.set_loop(p_start, p_end, get_time_us());
@@ -231,6 +266,10 @@ void MidiDriver::stop(uint64_t p_target, int64_t p_time_us, gaph::midi::StopMode
 
 void MidiDriver::beat(int64_t p_running_beat, double p_song_beat) {
 	emit_signal("beat", p_running_beat, p_song_beat);
+}
+
+void MidiDriver::looped(double, double p_song_beat) {
+	emit_signal("position_changed", p_song_beat);
 }
 
 void MidiDriver::_notification(int p_what) {
@@ -295,6 +334,12 @@ void MidiDriver::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("at_beat", "song_beat"), &MidiDriver::at_beat);
 
 	ADD_SIGNAL(MethodInfo("beat", PropertyInfo(Variant::INT, "running_beat"), PropertyInfo(Variant::FLOAT, "song_beat")));
+	ADD_SIGNAL(MethodInfo("started"));
+	ADD_SIGNAL(MethodInfo("paused", PropertyInfo(Variant::FLOAT, "song_beat")));
+	ADD_SIGNAL(MethodInfo("resumed", PropertyInfo(Variant::FLOAT, "song_beat")));
+	ADD_SIGNAL(MethodInfo("stopped"));
+	ADD_SIGNAL(MethodInfo("position_changed", PropertyInfo(Variant::FLOAT, "song_beat")));
+	ADD_SIGNAL(MethodInfo("tempo_changed", PropertyInfo(Variant::FLOAT, "bpm")));
 
 	BIND_ENUM_CONSTANT(EVENT_NOTE_ON);
 	BIND_ENUM_CONSTANT(EVENT_NOTE_OFF);

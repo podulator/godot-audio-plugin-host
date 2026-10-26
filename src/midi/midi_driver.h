@@ -129,6 +129,7 @@ private:
 	void send(uint64_t p_target, int64_t p_time_us, const gaph::midi::Event &p_event) override;
 	void stop(uint64_t p_target, int64_t p_time_us, gaph::midi::StopMode p_mode) override;
 	void beat(int64_t p_running_beat, double p_song_beat) override;
+	void looped(double p_running, double p_song_beat) override;
 
 	bool check_channel(int p_channel) const;
 	bool check_7bit(int p_value, const char *p_what) const;

@@ -246,6 +246,40 @@
 				Emitted on each beat while playing. [param running_beat] counts beats since [method play]; [param song_beat] is the song position there (a loop folds it back). Emitted on the main thread, so up to a frame late: for gameplay, not for timing notes (plan those with [method next] instead).
 			</description>
 		</signal>
+		<signal name="paused">
+			<param index="0" name="song_beat" type="float" />
+			<description>
+				Emitted by [method pause], with the song position where the music stopped.
+			</description>
+		</signal>
+		<signal name="position_changed">
+			<param index="0" name="song_beat" type="float" />
+			<description>
+				Emitted when the song jumps: by [method seek], and each time a loop goes back to its start (then up to a frame late, like [signal beat]).
+			</description>
+		</signal>
+		<signal name="resumed">
+			<param index="0" name="song_beat" type="float" />
+			<description>
+				Emitted by [method play] after a [method pause], with the song position the music goes on from.
+			</description>
+		</signal>
+		<signal name="started">
+			<description>
+				Emitted by [method play] when the transport was stopped (not paused).
+			</description>
+		</signal>
+		<signal name="stopped">
+			<description>
+				Emitted by [method stop] and [method panic].
+			</description>
+		</signal>
+		<signal name="tempo_changed">
+			<param index="0" name="bpm" type="float" />
+			<description>
+				Emitted when [member bpm] changes.
+			</description>
+		</signal>
 	</signals>
 	<constants>
 		<constant name="NOW" value="-1">

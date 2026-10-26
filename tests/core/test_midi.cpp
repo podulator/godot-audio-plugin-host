@@ -36,6 +36,8 @@ struct Recorder : Sink {
 	void send(uint64_t p_target, int64_t p_time_us, const Event &p_event) override { sent.push_back({ p_target, p_time_us, p_event }); }
 	void stop(uint64_t p_target, int64_t p_time_us, StopMode p_mode) override { stops.push_back({ p_target, p_time_us, p_mode }); }
 	void beat(int64_t p_running, double p_song) override { beats.push_back({ p_running, p_song }); }
+	std::vector<std::pair<double, double>> jumps;
+	void looped(double p_running, double p_song) override { jumps.push_back({ p_running, p_song }); }
 	std::vector<Sent> of(Kind p_kind) const {
 		std::vector<Sent> out;
 		for (const Sent &s : sent) {
@@ -212,6 +214,9 @@ static void test_loop() {
 	if (rec.beats.size() == 10) {
 		CHECK(rec.beats[7].second == 7.0 && rec.beats[8].second == 4.0 && rec.beats[9].second == 5.0);
 	}
+	// One loop jump so far: at running beat 8, back to song beat 4. The next is at 12.
+	CHECK(rec.jumps.size() == 1 && rec.jumps[0].first == 8.0 && rec.jumps[0].second == 4.0);
+	CHECK(std::abs(tr.next_loop_jump_after(9.0) - 12.0) < 1e-9 && std::abs(tr.next_loop_jump_after(12.0) - 16.0) < 1e-9);
 }
 
 // The bytes and words plugins receive, as the MIDI 1.0 and 2.0 specifications define them.
