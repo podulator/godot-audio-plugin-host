@@ -10,6 +10,7 @@ const TestUtilScript = preload("res://tests/test_util.gd")
 const RATE := 44100.0
 var phase := 0.0
 var playback: AudioStreamGeneratorPlayback
+var player: AudioStreamPlayer
 var failures := 0
 
 
@@ -36,7 +37,7 @@ func _ready() -> void:
 	AudioServer.add_bus_effect(bus, cap)
 	var gen := AudioStreamGenerator.new()
 	gen.mix_rate = RATE
-	var player := AudioStreamPlayer.new()
+	player = AudioStreamPlayer.new()
 	player.stream = gen
 	player.bus = "Both"
 	add_child(player)
@@ -54,6 +55,12 @@ func _ready() -> void:
 	var both := await _peak(cap)
 	_check(absf(both - unity * 0.25) < 0.005, "0.5 x 0.5 in total: peak %.4f (want %.4f)" % [both, unity * 0.25])
 	print("BOTH %s" % ("OK" if failures == 0 else "FAILED (%d)" % failures))
+	# Stopped, and let go, before quitting: the audio server drops a stopped playback on its
+	# next update, which a quit straight away never reaches, so it showed as leaked at exit.
+	if player:
+		player.stop()
+	playback = null
+	await get_tree().create_timer(0.1).timeout
 	get_tree().quit(1 if failures else 0)
 
 
