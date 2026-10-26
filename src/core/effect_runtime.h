@@ -102,6 +102,7 @@ private:
 	uint32_t event_next = 0; // The first event not yet handed to a chunk.
 	std::vector<ParamEvent> chunk_events; // One chunk's slice, offsets relative to the chunk.
 	std::vector<ParamEvent> pending; // Due after this block; capacity MAX_PENDING_EVENTS.
+	uint32_t clock_restarts_seen = 0; // BlockClock::get_restarts() when `pending` was last placed
 
 	// Planar buffers: one allocation per direction, holding both channels back to back,
 	// [L0..L511][R0..R511]. in_ptrs[c] points at the start of channel c, which is the shape

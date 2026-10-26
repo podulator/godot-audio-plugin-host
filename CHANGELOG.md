@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1 (unreleased)
+
+- Parameter changes made after a gap in the audio (an Android app back from the background, a laptop waking up, a switched audio device) were heard as much later as the gap was long, and changes scheduled across the gap too. The host now notices the restart and times them from it.
+
 ## 1.1.0 (2026-10-24)
 
 Android support, for CLAP plugins.

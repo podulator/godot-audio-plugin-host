@@ -367,6 +367,62 @@ static void test_spacing_while_clock_settles() {
 	}
 }
 
+// A gap in the audio: the driver stops asking for blocks for 5 s (an Android app in the
+// background, a suspended laptop, a switched audio device), then carries on. A change made just
+// after must still be heard about a block later, not 5 s later: the clock has to notice that the
+// stream restarted, since its anchor otherwise only ever moves down (or creeps up 1 us a block).
+static void test_change_after_a_gap() {
+	const double rate = 48000;
+	EffectRuntime rt;
+	rt.set_sample_rate(rate);
+	auto *rec = new EventRecorder();
+	rt.exchange_processor(std::unique_ptr<PluginProcessor>(rec));
+	std::vector<float> in(2 * 512), out(2 * 512);
+	const int64_t t0 = 9000000;
+	const int64_t period = int64_t(512 * 1e6 / rate);
+	int64_t now = t0;
+	for (int cb = 0; cb < 200; cb++, now += period) { // about 2 s: settled
+		rt.process_at(in.data(), out.data(), 512, now);
+	}
+	now += 5000000; // 5 s without audio
+	for (int cb = 0; cb < 10; cb++, now += period) {
+		rt.process_at(in.data(), out.data(), 512, now);
+	}
+	const int64_t made_at_frame = int64_t(rec->position);
+	rt.queue_param(1, 0.5, now - 100);
+	for (int cb = 0; cb < 20; cb++, now += period) {
+		rt.process_at(in.data(), out.data(), 512, now);
+	}
+	const int64_t late = rec->at.empty() ? -1 : rec->at[0] - made_at_frame;
+	CHECK(rec->at.size() == 1 && late >= 0 && late <= 2 * 512);
+	if (rec->at.size() != 1 || late < 0 || late > 2 * 512) {
+		std::printf("      after the gap: %zu event(s), the first %lld frames after it was made (want <= %d)\n", rec->at.size(),
+				(long long)late, 2 * 512);
+	}
+
+	// A change scheduled 7 s ahead, then a 5 s gap: it is due 7 s after it was made, in real time.
+	// The stream lost 5 s of samples, so it must land 2 s of stream after the audio came back, not
+	// 7 s (its stream position worked out before the gap still assumed no gap).
+	rec->at.clear();
+	const int64_t made_us = now;
+	rt.queue_param(1, 0.25, made_us + 7000000);
+	rt.process_at(in.data(), out.data(), 512, now); // it arrives and waits, its position worked out
+	now += period;
+	now += 5000000;
+	const int64_t back_frame = int64_t(rec->position);
+	const int64_t back_us = now;
+	for (int cb = 0; cb < 300; cb++, now += period) { // 3.2 s
+		rt.process_at(in.data(), out.data(), 512, now);
+	}
+	const int64_t want = int64_t(double(made_us + 7000000 - back_us) * rate / 1e6); // what is left of the 7 s
+	const int64_t got = rec->at.empty() ? -1 : rec->at[0] - back_frame;
+	CHECK(rec->at.size() == 1 && std::llabs(got - want) <= 2 * 512);
+	if (rec->at.size() != 1 || std::llabs(got - want) > 2 * 512) {
+		std::printf("      scheduled across the gap: %zu event(s), %lld frames after the audio came back (want about %lld)\n",
+				rec->at.size(), (long long)got, (long long)want);
+	}
+}
+
 int main() {
 	test_queue_basics();
 	test_queue_threads();
@@ -377,6 +433,7 @@ int main() {
 	test_param_list_change();
 	test_sample_accurate_spacing();
 	test_spacing_while_clock_settles();
+	test_change_after_a_gap();
 	std::printf(failures ? "%d FAILURES\n" : "all core tests passed\n", failures);
 	return failures ? 1 : 0;
 }

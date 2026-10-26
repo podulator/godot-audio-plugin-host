@@ -25,6 +25,15 @@
 // anchor also creeps forward by 1 us per block (~86 us/s at 44.1 kHz, far more than any drift),
 // and the minimum pulls it back down. That keeps it tracking without ever running ahead for long.
 //
+// GAPS
+// Sometimes no blocks come at all for a while: an Android app in the background, a suspended
+// laptop, a switched audio device. The stream then carries on, but its sample 0 is now further in
+// the past than the anchor says, by the length of the gap. The minimum cannot follow (it only
+// moves down) and the creep would take hours, so every change made afterwards would be heard that
+// much later. A block arriving more than GAP_US later than the anchor predicts is therefore taken
+// as a restart: the anchor is set from it afresh, and the minimum carries on from there. Normal
+// lateness (one driver callback, scheduling jitter) stays far below GAP_US.
+//
 // HOW BIG D MUST BE
 // A change made just after block k-1 was processed must still land at or after block k's first
 // sample. Working through the anchor bound above gives D >= one block. One block plus 1 ms of
@@ -47,6 +56,7 @@ class BlockClock {
 public:
 	static constexpr int64_t SLACK_US = 1000;
 	static constexpr int64_t CREEP_US = 1;
+	static constexpr int64_t GAP_US = 200000;
 
 	// MAIN THREAD, before audio runs.
 	void set_sample_rate(double p_rate) { rate = p_rate > 0 ? p_rate : 48000.0; }
@@ -56,7 +66,10 @@ public:
 		block_start = position;
 		const double block_start_us = double(block_start) * 1e6 / rate;
 		const int64_t candidate = p_now_us - int64_t(block_start_us);
-		if (!started || candidate < anchor_us) {
+		if (started && candidate - anchor_us > GAP_US) {
+			anchor_us = candidate; // a restart after a gap (see GAPS above)
+			restarts++;
+		} else if (!started || candidate < anchor_us) {
 			anchor_us = candidate;
 			started = true;
 		} else {
@@ -92,6 +105,11 @@ public:
 
 	int64_t get_delay_us() const { return delay_us; }
 
+	// How often the stream has restarted after a gap. Stream positions worked out before a restart
+	// (absolute_frame_for) are off by the gap: whoever keeps them works them out again when this
+	// changes.
+	uint32_t get_restarts() const { return restarts; }
+
 private:
 	double rate = 48000.0;
 	bool started = false;
@@ -100,6 +118,7 @@ private:
 	uint64_t position = 0; // Frames processed so far, i.e. the first frame of the next block.
 	uint64_t block_start = 0;
 	uint32_t frames = 0;
+	uint32_t restarts = 0;
 };
 
 } // namespace gaph

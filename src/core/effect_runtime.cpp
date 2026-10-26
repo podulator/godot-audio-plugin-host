@@ -53,6 +53,14 @@ void EffectRuntime::gather_events(uint32_t p_frames) {
 	event_count = 0;
 	event_next = 0;
 	const int64_t block_start = clock.current_block_start();
+	// After a gap in the audio the clock has a new anchor, and the stream positions worked out for
+	// waiting events assume none: work them out again (from their due time, which is still right).
+	if (clock.get_restarts() != clock_restarts_seen) {
+		clock_restarts_seen = clock.get_restarts();
+		for (ParamEvent &waiting : pending) {
+			waiting.due_frame = -1;
+		}
+	}
 	// An event's frame within this block, from the stream position it was given when it first
 	// arrived (see BlockClock::absolute_frame_for for why once, not every block).
 	auto frame_in_block = [&](ParamEvent &ev) -> int64_t {
