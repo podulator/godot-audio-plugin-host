@@ -16,7 +16,7 @@
 		midi.note_on(1, 60, 100, 1.0)
 		[/codeblock]
 		Notes land on the exact audio sample the driver planned them for, and the plugin follows the driver's tempo and song position (CLAP transport). Notes go to the plugin as CLAP note events where it takes them, otherwise as MIDI 2.0 or MIDI 1.0; controllers, pitch bend, pressure and program always go as MIDI.
-		One playback at a time: keep the player's [member AudioStreamPlayer.max_polyphony] at 1, as every playback gets every note. Saved plugin state is not there yet.
+		One playback at a time: keep the player's [member AudioStreamPlayer.max_polyphony] at 1, as every playback gets every note.
 	</description>
 	<tutorials>
 	</tutorials>
@@ -121,17 +121,37 @@
 		</method>
 	</methods>
 	<members>
+		<member name="param_values" type="Dictionary" setter="set_param_values" getter="get_param_values" default="{}">
+			The parameters set by hand, as [code]{id: value}[/code]. Saved with the scene and applied after [member plugin_state] when it loads, so they win if the two disagree. Parameters not listed keep whatever the plugin holds: its default, or what a loaded state set.
+			Not shown in the inspector, which shows one slider per parameter under [b]Parameters[/b] instead.
+		</member>
 		<member name="plugin_id" type="String" setter="set_plugin_id" getter="get_plugin_id" default="&quot;&quot;">
 			Which plugin of a file holding several; empty for the first.
 		</member>
 		<member name="plugin_path" type="String" setter="set_plugin_path" getter="get_plugin_path" default="&quot;&quot;">
 			The [code].clap[/code] file: relative to a plugin folder, [code]res://[/code] or absolute, as for [ClapPluginEffect].
 		</member>
+		<member name="plugin_state" type="PackedByteArray" setter="set_plugin_state" getter="get_plugin_state" default="PackedByteArray()">
+			The plugin's complete state, as bytes only the same plugin can read: everything it needs to come back exactly as it was, which can be more than its parameters. Saved with the scene. Reading it asks the plugin for its current state.
+			Setting it from a script loads a preset: it replaces every value set by hand so far ([member param_values]).
+		</member>
 	</members>
 	<signals>
 		<signal name="editor_closed">
 			<description>
 				Emitted when the plugin's window closes: by the user, by the plugin, or by [method close_editor].
+			</description>
+		</signal>
+		<signal name="parameter_changed">
+			<param index="0" name="id" type="int" />
+			<param index="1" name="value" type="float" />
+			<description>
+				Emitted when the plugin changes a parameter itself, for example from its own window. The new value is already stored in [member param_values] and sent to every instance.
+			</description>
+		</signal>
+		<signal name="parameters_changed">
+			<description>
+				Emitted when the plugin's parameter list changes while it runs: names, ranges, or which parameters exist. Values for parameters that no longer exist are dropped, and the inspector is rebuilt.
 			</description>
 		</signal>
 	</signals>

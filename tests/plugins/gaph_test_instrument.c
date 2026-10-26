@@ -8,6 +8,8 @@
  * channel volume (CC 7, 0..127) scales the sum. So a note's start and end show as exact steps in
  * the audio, on the very sample its event names, and the level says how many notes sound and how
  * loud. A choke, or All Sound Off (CC 120), silences notes like a note-off. No audio input.
+ * One parameter, Master (id 1, 0..1, default 1), scales everything; it is the plugin's state too
+ * (a little-endian double), so a saved scene brings it back.
  *
  * The transport plugin ignores notes: its left output is the song position in beats x 0.001 at
  * every sample (from proc->transport and transport events, moved on at the tempo while playing),
@@ -17,6 +19,7 @@
 #include <clap/clap.h>
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,6 +46,7 @@ typedef struct {
 	Note notes[MAX_NOTES];
 	int note_count;
 	float volume[16]; /* CC 7 per channel, 0..1 */
+	double master;    /* parameter 1, and the state */
 } Instrument;
 
 static const char *const FEATURES[] = { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_STEREO, NULL };
@@ -100,7 +104,7 @@ static float level_now(const Instrument *s) {
 	for (int i = 0; i < s->note_count; i++) {
 		sum += s->notes[i].level * s->volume[s->notes[i].channel & 15];
 	}
-	return sum;
+	return (float)(sum * s->master);
 }
 
 static void handle_midi1(Instrument *s, const uint8_t data[3]) {
@@ -129,6 +133,13 @@ static void handle_event(Instrument *s, const clap_event_header_t *h) {
 	if (h->space_id != CLAP_CORE_EVENT_SPACE_ID) {
 		return;
 	}
+	if (h->type == CLAP_EVENT_PARAM_VALUE) {
+		const clap_event_param_value_t *e = (const clap_event_param_value_t *)h;
+		if (e->param_id == 1) {
+			s->master = e->value;
+		}
+		return;
+	}
 	if (h->type == CLAP_EVENT_TRANSPORT) {
 		take_transport(s, (const clap_event_transport_t *)h, (int64_t)h->time);
 		return;
@@ -155,6 +166,7 @@ static bool p_init(const clap_plugin_t *p) {
 	for (int c = 0; c < 16; c++) {
 		s->volume[c] = 1.0f;
 	}
+	s->master = 1.0;
 	return true;
 }
 
@@ -273,6 +285,71 @@ static bool notes_get(const clap_plugin_t *p, uint32_t index, bool is_input, cla
 
 static const clap_plugin_note_ports_t NOTE_PORTS = { notes_count, notes_get };
 
+/* params: Master only. Also flushed while not processing (the host's probe, setting a value). */
+static uint32_t params_count(const clap_plugin_t *p) {
+	return self_of(p)->transport_only ? 0 : 1;
+}
+
+static bool params_info(const clap_plugin_t *p, uint32_t index, clap_param_info_t *info) {
+	if (self_of(p)->transport_only || index != 0) {
+		return false;
+	}
+	memset(info, 0, sizeof(*info));
+	info->id = 1;
+	info->flags = CLAP_PARAM_IS_AUTOMATABLE;
+	strcpy(info->name, "Master");
+	info->min_value = 0.0;
+	info->max_value = 1.0;
+	info->default_value = 1.0;
+	return true;
+}
+
+static bool params_value(const clap_plugin_t *p, clap_id id, double *value) {
+	if (id != 1) {
+		return false;
+	}
+	*value = self_of(p)->master;
+	return true;
+}
+
+static bool params_to_text(const clap_plugin_t *p, clap_id id, double value, char *out, uint32_t size) {
+	(void)p, (void)id;
+	snprintf(out, size, "%.2f", value);
+	return true;
+}
+
+static bool params_from_text(const clap_plugin_t *p, clap_id id, const char *text, double *value) {
+	(void)p, (void)id;
+	*value = atof(text);
+	return true;
+}
+
+static void params_flush(const clap_plugin_t *p, const clap_input_events_t *in, const clap_output_events_t *out) {
+	(void)out;
+	for (uint32_t i = 0; i < in->size(in); i++) {
+		handle_event(self_of(p), in->get(in, i));
+	}
+}
+
+static const clap_plugin_params_t PARAMS = { params_count, params_info, params_value, params_to_text, params_from_text, params_flush };
+
+/* state: Master as a little-endian double (8 bytes; the test machines are all little-endian). */
+static bool state_save(const clap_plugin_t *p, const clap_ostream_t *stream) {
+	const double v = self_of(p)->master;
+	return stream->write(stream, &v, sizeof(v)) == (int64_t)sizeof(v);
+}
+
+static bool state_load(const clap_plugin_t *p, const clap_istream_t *stream) {
+	double v = 0.0;
+	if (stream->read(stream, &v, sizeof(v)) != (int64_t)sizeof(v)) {
+		return false;
+	}
+	self_of(p)->master = v;
+	return true;
+}
+
+static const clap_plugin_state_t STATE = { state_save, state_load };
+
 static const void *p_get_extension(const clap_plugin_t *p, const char *id) {
 	(void)p;
 	if (!strcmp(id, CLAP_EXT_AUDIO_PORTS)) {
@@ -280,6 +357,12 @@ static const void *p_get_extension(const clap_plugin_t *p, const char *id) {
 	}
 	if (!strcmp(id, CLAP_EXT_NOTE_PORTS)) {
 		return &NOTE_PORTS;
+	}
+	if (!strcmp(id, CLAP_EXT_PARAMS)) {
+		return &PARAMS;
+	}
+	if (!strcmp(id, CLAP_EXT_STATE)) {
+		return &STATE;
 	}
 	return NULL;
 }

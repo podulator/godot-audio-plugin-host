@@ -13,6 +13,7 @@
 // No oscillator, no audio input: each note start and end is an exact step in the audio.
 #include "public.sdk/source/main/pluginfactory.h"
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
+#include "base/source/fstreamer.h"
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/ivstmidicontrollers.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
@@ -80,6 +81,23 @@ public:
 			volume = value;
 		}
 		return SingleComponentEffect::setParamNormalized(id, value);
+	}
+
+	// State: Volume as a little-endian double, so a saved scene brings it back.
+	tresult PLUGIN_API getState(IBStream *state) override {
+		IBStreamer w(state, kLittleEndian);
+		return w.writeDouble(volume) ? kResultOk : kResultFalse;
+	}
+
+	tresult PLUGIN_API setState(IBStream *state) override {
+		IBStreamer r(state, kLittleEndian);
+		double v = 0;
+		if (!r.readDouble(v)) {
+			return kResultFalse;
+		}
+		volume = v;
+		SingleComponentEffect::setParamNormalized(VOLUME_ID, v); // the controller side shows it too
+		return kResultOk;
 	}
 
 	OBJ_METHODS(TestInstrument, SingleComponentEffect)

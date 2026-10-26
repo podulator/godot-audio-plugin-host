@@ -1,5 +1,6 @@
 #include "vst3_instrument.h"
 
+#include "godot_common/param_properties.h"
 #include "godot_common/plugin_paths.h"
 
 #include <godot_cpp/classes/audio_server.hpp>
@@ -87,6 +88,7 @@ void Vst3Instrument::load_plugin() {
 		UtilityFunctions::push_error("Vst3Instrument: ", plugin_path, ": ", load_error);
 		hosted.set_plugin({}, {}); // every playback falls back to silence
 		module.reset();
+		notify_property_list_changed();
 	};
 	if (plugin_path.is_empty()) {
 		hosted.set_plugin({}, {});
@@ -123,6 +125,7 @@ void Vst3Instrument::load_plugin() {
 	}
 	module = mod;
 	connect_idle();
+	notify_property_list_changed(); // the inspector rebuilds its parameter sliders
 }
 
 // VST3 plugins need main-thread time every frame (their run loop and timers on Linux, restarts), and HostedEffect builds
@@ -139,10 +142,17 @@ void Vst3Instrument::connect_idle() {
 }
 
 void Vst3Instrument::on_process_frame() {
-	hosted.idle();
+	const std::vector<gaph::ParamEvent> idle_changes = hosted.idle(); // changes the plugin made itself
 	// After idle(), which may have destroyed the instance showing the GUI: tick() reattaches it.
+	for (const gaph::ParamEvent &ev : idle_changes) {
+		emit_signal("parameter_changed", int64_t(ev.param_id), ev.value);
+	}
 	if (editor_window.tick(hosted)) {
 		emit_signal("editor_closed");
+	}
+	if (hosted.take_params_list_changed()) {
+		notify_property_list_changed();
+		emit_signal("parameters_changed");
 	}
 	const std::string err = hosted.take_error();
 	if (!err.empty()) {
@@ -204,6 +214,51 @@ Dictionary Vst3Instrument::get_plugin_info() {
 		d["version"] = String::utf8(c.version().c_str());
 	}
 	return d;
+}
+
+// --- Saving and the inspector's sliders ------------------------------------------------------
+
+void Vst3Instrument::set_plugin_state(const PackedByteArray &p_state) {
+	gaph_godot::set_state_bytes(hosted, load_pending, p_state);
+	if (!load_pending && hosted.has_plugin()) {
+		notify_property_list_changed(); // a preset moves the sliders
+	}
+}
+
+PackedByteArray Vst3Instrument::get_plugin_state() {
+	ensure_loaded();
+	return gaph_godot::get_state_bytes(hosted);
+}
+
+void Vst3Instrument::set_param_values(const Dictionary &p_values) {
+	gaph_godot::values_from_dictionary(hosted, p_values);
+}
+
+Dictionary Vst3Instrument::get_param_values() {
+	return gaph_godot::values_to_dictionary(hosted);
+}
+
+bool Vst3Instrument::_set(const StringName &p_name, const Variant &p_value) {
+	uint32_t id;
+	if (!gaph_godot::param_id_from_property(hosted, p_name, id)) {
+		return false; // not a parameter: Godot falls back to the bound properties
+	}
+	hosted.set_param(id, double(p_value));
+	return true;
+}
+
+bool Vst3Instrument::_get(const StringName &p_name, Variant &r_ret) const {
+	uint32_t id;
+	if (!gaph_godot::param_id_from_property(hosted, p_name, id)) {
+		return false;
+	}
+	r_ret = hosted.get_param(id);
+	return true;
+}
+
+void Vst3Instrument::_get_property_list(List<PropertyInfo> *p_list) const {
+	const_cast<Vst3Instrument *>(this)->ensure_loaded(); // the inspector may ask before the deferred load ran
+	gaph_godot::append_param_properties(hosted, p_list);
 }
 
 // --- The plugin window ------------------------------------------------------------------------
@@ -277,6 +332,16 @@ void Vst3Instrument::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("editor_closed"));
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "plugin_path", PROPERTY_HINT_PLACEHOLDER_TEXT, "a .vst3 bundle"), "set_plugin_path", "get_plugin_path");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "plugin_id", PROPERTY_HINT_PLACEHOLDER_TEXT, "first plugin in the file"), "set_plugin_id", "get_plugin_id");
+	// After the plugin: Godot sets properties in this order when it loads a scene. State before
+	// values, so values set by hand after the state was taken still win.
+	ClassDB::bind_method(D_METHOD("set_plugin_state", "state"), &Vst3Instrument::set_plugin_state);
+	ClassDB::bind_method(D_METHOD("get_plugin_state"), &Vst3Instrument::get_plugin_state);
+	ClassDB::bind_method(D_METHOD("set_param_values", "values"), &Vst3Instrument::set_param_values);
+	ClassDB::bind_method(D_METHOD("get_param_values"), &Vst3Instrument::get_param_values);
+	ADD_PROPERTY(PropertyInfo(Variant::PACKED_BYTE_ARRAY, "plugin_state", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_plugin_state", "get_plugin_state");
+	ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "param_values", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_param_values", "get_param_values");
+	ADD_SIGNAL(MethodInfo("parameter_changed", PropertyInfo(Variant::INT, "id"), PropertyInfo(Variant::FLOAT, "value")));
+	ADD_SIGNAL(MethodInfo("parameters_changed"));
 }
 
 } // namespace godot

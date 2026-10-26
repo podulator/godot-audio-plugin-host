@@ -61,6 +61,13 @@ public:
 	void set_parameter(int64_t p_id, double p_value);
 	double get_parameter(int64_t p_id);
 	Dictionary get_plugin_info();
+
+	// Saving, as for effects (godot_common/instrument_common.h): the plugin's own state, and the
+	// parameters set by hand. Storage properties: saved with the scene, not shown.
+	void set_plugin_state(const PackedByteArray &p_state);
+	PackedByteArray get_plugin_state();
+	void set_param_values(const Dictionary &p_values);
+	Dictionary get_param_values();
 	int64_t get_frames_processed();
 
 	bool open_editor();
@@ -81,6 +88,10 @@ public:
 
 protected:
 	static void _bind_methods();
+	// One inspector slider per plugin parameter (godot_common/param_properties.h), as for effects.
+	bool _set(const StringName &p_name, const Variant &p_value);
+	bool _get(const StringName &p_name, Variant &r_ret) const;
+	void _get_property_list(List<PropertyInfo> *p_list) const;
 
 private:
 	void ensure_loaded();

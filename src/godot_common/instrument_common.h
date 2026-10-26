@@ -19,9 +19,11 @@
 #include <godot_cpp/classes/audio_server.hpp>
 #include <godot_cpp/classes/audio_stream_playback.hpp>
 #include <godot_cpp/core/error_macros.hpp>
+#include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
 #include <algorithm>
+#include <cstring>
 #include <vector>
 
 namespace gaph_godot {
@@ -99,6 +101,30 @@ private:
 
 	gaph::midi::NoteBook notes;
 };
+
+// SAVING, as for effects: `plugin_state`, the plugin's own complete state as bytes, and
+// `param_values`, the parameters set by hand (godot_common/param_properties.h). Godot sets them
+// in property order when it loads a scene, after plugin_path, and before the deferred plugin load:
+// the state is then kept and applied as the plugin comes up (HostedEffect::set_plugin), and
+// values set by hand, applied after it, win where the two disagree.
+inline void set_state_bytes(gaph::HostedEffect &p_hosted, bool p_load_pending, const PackedByteArray &p_state) {
+	std::vector<uint8_t> bytes(p_state.ptr(), p_state.ptr() + p_state.size());
+	if (p_load_pending || !p_hosted.has_plugin()) {
+		p_hosted.set_pending_state(std::move(bytes));
+	} else {
+		p_hosted.load_state(bytes);
+	}
+}
+
+inline PackedByteArray get_state_bytes(gaph::HostedEffect &p_hosted) {
+	std::vector<uint8_t> bytes;
+	PackedByteArray out;
+	if (p_hosted.save_state(bytes)) {
+		out.resize(int64_t(bytes.size()));
+		std::memcpy(out.ptrw(), bytes.data(), bytes.size());
+	}
+	return out;
+}
 
 // One playback's sound. The format's AudioStreamPlayback subclass owns one, and forwards
 // setup (MAIN thread, before Godot mixes the playback: no lock needed to hand the runtime a plugin

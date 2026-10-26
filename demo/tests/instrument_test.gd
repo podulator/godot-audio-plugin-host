@@ -38,6 +38,8 @@ func _ready() -> void:
 	else:
 		await _test_vst3_notes(vst3_notes)
 		await _test_vst3_transport(vst3_transport)
+		await _test_saving(vst3_notes, "VST3")
+	await _test_saving(path, "CLAP")
 	print("INSTRUMENT %s" % ("OK" if failures == 0 else "FAILED (%d)" % failures))
 	get_tree().quit(1 if failures else 0)
 
@@ -53,6 +55,11 @@ func _rig(path: String, id: String, bus_name: String) -> Dictionary:
 	if not vst3:
 		inst.plugin_id = id
 	_check(inst.is_plugin_loaded(), "%s loads (%s)" % [path.get_file() if vst3 else id.get_slice(".", 2), inst.get_load_error()])
+	return await _rig_with(inst, bus_name)
+
+
+# The same, for an instrument made already (a loaded resource, say).
+func _rig_with(inst: AudioStream, bus_name: String) -> Dictionary:
 	var bus := AudioServer.bus_count
 	AudioServer.add_bus(bus)
 	AudioServer.set_bus_name(bus, bus_name)
@@ -262,3 +269,48 @@ func _test_vst3_transport(path: String) -> void:
 		_check(landed >= 1.0 and landed < 1.0 + 512.0 / rate * 2.0 + 1e-6, "VST3: each jump lands within a block after beat 1 (%.5f)" % landed)
 	_check(absf(frames[frames.size() - 1].y - 0.12) < 1e-6, "VST3: the plugin is told 120 bpm, playing (%.4f)" % frames[frames.size() - 1].y)
 	await _unrig(r)
+
+
+
+# Saving, as a scene does: an instrument with its parameter (CLAP Master, VST3 Volume: id 1) at
+# 0.5, written to a .tres and read back fresh (no cache), sounds at 0.25 x 0.5 = 0.125. Then the
+# plugin's state alone (param_values emptied) brings the value back too.
+func _test_saving(path: String, format: String) -> void:
+	var vst3 := format == "VST3"
+	var inst: AudioStream = Vst3Instrument.new() if vst3 else ClapInstrument.new()
+	inst.plugin_path = path
+	if not vst3:
+		inst.plugin_id = CLAP_ID
+	_check(inst.is_plugin_loaded(), "%s: the instrument loads for saving" % format)
+	inst.set_parameter(1, 0.5)
+	_check(inst.get_plugin_state().size() > 0, "%s: it has a plugin state (%d bytes)" % [format, inst.get_plugin_state().size()])
+	var file := "user://instrument_%s.tres" % format.to_lower()
+	_check(ResourceSaver.save(inst, file) == OK, "%s: saved to %s" % [format, file])
+	var loaded: AudioStream = ResourceLoader.load(file, "", ResourceLoader.CACHE_MODE_IGNORE)
+	_check(loaded != null and loaded.is_plugin_loaded(), "%s: loaded back" % format)
+	_check(is_equal_approx(loaded.get_parameter(1), 0.5), "%s: the parameter comes back as 0.5 (%s)" % [format, loaded.get_parameter(1)])
+	var level := await _note_level(loaded, "Inst_Save_" + format)
+	_check(is_equal_approx(level, 0.125), "%s: and the loaded instrument sounds at 0.25 x 0.5 (%s)" % [format, level])
+
+	# The state alone: a fresh instrument given only the saved bytes, before its plugin loads.
+	var bare: AudioStream = Vst3Instrument.new() if vst3 else ClapInstrument.new()
+	bare.plugin_path = path
+	if not vst3:
+		bare.plugin_id = CLAP_ID
+	bare.plugin_state = inst.get_plugin_state()
+	_check(bare.get_param_values().is_empty(), "%s: no hand-set values on the copy" % format)
+	var bare_level := await _note_level(bare, "Inst_State_" + format)
+	_check(is_equal_approx(bare_level, 0.125), "%s: the plugin's state alone brings it back (%s)" % [format, bare_level])
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(file))
+
+
+# The level one note (velocity 127) makes on this instrument.
+func _note_level(inst: AudioStream, bus_name: String) -> float:
+	var r := await _rig_with(inst, bus_name)
+	var midi: MidiDriver = r.midi
+	midi.set_channel_target(1, inst)
+	midi.play()
+	midi.note_on(1, 60, 127, 0.5, midi.at_beat(0.5))
+	var steps := _steps(await _collect(r.cap, 0.9))
+	await _unrig(r)
+	return steps[0][1] if steps.size() > 0 else -1.0
