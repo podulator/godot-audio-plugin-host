@@ -153,14 +153,13 @@ An instrument holds at most the lookahead's worth of events, in the runtime's fi
 - **midi_stop:** the audio thread only learns "drop this source's events from time T". Which notes still sound at T is worked out on the main thread, which queued them all (`core/midi_target.h`), and they get a note-off (RELEASE) or a choke (CUT) at T.
 - **Events into CLAP:** by the plugin's `note-ports` dialects: CLAP note events (with the `note_id`, velocity 0..1) where taken; else MIDI 2.0 (`CLAP_EVENT_MIDI2`, full resolution); else MIDI 1.0 (`CLAP_EVENT_MIDI`), converted down. Controllers, pitch bend, pressure and program change always go as MIDI.
 - **Events into VST3:** notes and poly pressure as VST3 events on the first event input bus. VST3 has no controller events: the plugin's `IMidiMapping` is read into a table when it starts (a main-thread call), and controllers, channel pressure, pitch bend and program change become changes of the parameters it maps them to.
-- **The transport** (`midi_transport`) reaches CLAP plugins as `proc.transport` plus a transport event on the very sample a snapshot lands, and VST3 plugins in the `ProcessContext`, once per block: a loop jump inside a block reaches a VST3 plugin at the next block's start, up to 512 samples late.
+- **The transport** (`midi_transport`) reaches CLAP plugins as `proc.transport` plus a transport event on the very sample a snapshot lands, and VST3 plugins in the `ProcessContext`, which VST3 has once per `process()` call: the runtime starts a new call wherever a snapshot lands inside a block (`PluginProcessor::wants_transport_splits`), so a loop jump reaches VST3 plugins on its sample too.
 - **Saving,** as for effects: `plugin_state` and `param_values`, in that order after the plugin; parameters as inspector sliders.
 - **Several outputs** (drum machines, multi-out samplers): the plugin renders all of them in the same block; `get_output(i)` is a small `AudioStream` (`ClapInstrumentOutput`, `Vst3InstrumentOutput`) that plays output i, in a player of its own, on any bus; `bind_outputs([players])` does it for a list. Output 0 is the main one, the instrument itself; the others are the plugin's other output ports (CLAP) or aux output buses (VST3), in their order, by their names (`get_output_names()`). An output stream holds its instrument, not the other way round, so no reference cycle keeps either.
 - **Mix rate:** the playback runs at the `AudioServer`'s mix rate, so Godot does not resample.
 - **Sleep (CLAP):** a plugin returning `CLAP_PROCESS_SLEEP` (or `CONTINUE_IF_NOT_QUIET` with a silent output) is not called again until a block brings an event for it, its input is not silent, or it asks (`request_process`); the host outputs silence meanwhile, so an idle instrument costs nothing. The same holds for effects. VST3 has no such status.
 - **Not built yet:**
   - instruments listed by name (per-plugin classes, as the Add Effect menu has for effects);
-  - exact loop jumps for VST3 (splitting the block at a transport snapshot).
 
 ## Phases
 

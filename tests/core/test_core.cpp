@@ -5,6 +5,7 @@
 #include "core/sidechain.h"
 
 #include <cmath>
+#include <initializer_list>
 #include <cstdlib>
 #include <cstdio>
 #include <thread>
@@ -466,6 +467,64 @@ static void test_midi_spacing_and_drop() {
 	}
 }
 
+// A processor that hears the transport only per call (VST3) gets a new process() call exactly
+// where a TRANSPORT event falls inside a block, the event at its first sample; one that does not
+// want that (CLAP, effects) gets the block in one call, the event at its offset.
+struct SplitRecorder : PluginProcessor {
+	bool splits = false;
+	std::vector<uint32_t> calls; // frames per call
+	std::vector<uint32_t> transport_offsets; // within each call
+	bool wants_transport_splits() const override { return splits; }
+	bool process(const AudioBlock &b) override {
+		calls.push_back(b.frames);
+		for (uint32_t i = 0; i < b.param_event_count; i++) {
+			if (b.param_events[i].type == ParamEvent::TRANSPORT) {
+				transport_offsets.push_back(b.param_events[i].frame_offset);
+			}
+		}
+		for (uint32_t i = 0; i < b.frames; i++) {
+			b.outputs[0][i] = b.outputs[1][i] = 0.0f;
+		}
+		return true;
+	}
+};
+
+static void test_transport_splits() {
+	for (bool splits : { true, false }) {
+		const double rate = 48000;
+		EffectRuntime rt;
+		rt.set_sample_rate(rate);
+		auto *rec = new SplitRecorder();
+		rec->splits = splits;
+		rt.exchange_processor(std::unique_ptr<PluginProcessor>(rec));
+		std::vector<float> in(2 * 512), out(2 * 512);
+		const int64_t period = int64_t(512 * 1e6 / rate);
+		int64_t now = 30000000;
+		for (int cb = 0; cb < 100; cb++, now += period) {
+			rt.process_at(in.data(), out.data(), 512, now);
+		}
+		rec->calls.clear();
+		ParamEvent t;
+		t.type = ParamEvent::TRANSPORT;
+		t.source = 7;
+		t.due_us = now + 2 * period + int64_t(200 * 1e6 / rate); // 200 frames into a later block
+		rt.queue_midi(t);
+		for (int cb = 0; cb < 6; cb++, now += period) {
+			rt.process_at(in.data(), out.data(), 512, now);
+		}
+		size_t split_calls = 0;
+		for (uint32_t frames : rec->calls) {
+			split_calls += frames != 512;
+		}
+		CHECK(rec->transport_offsets.size() == 1);
+		if (splits) {
+			CHECK(split_calls == 2 && rec->transport_offsets.size() == 1 && rec->transport_offsets[0] == 0);
+		} else {
+			CHECK(split_calls == 0 && rec->transport_offsets.size() == 1 && rec->transport_offsets[0] > 0);
+		}
+	}
+}
+
 int main() {
 	test_queue_basics();
 	test_queue_threads();
@@ -478,6 +537,7 @@ int main() {
 	test_spacing_while_clock_settles();
 	test_change_after_a_gap();
 	test_midi_spacing_and_drop();
+	test_transport_splits();
 	std::printf(failures ? "%d FAILURES\n" : "all core tests passed\n", failures);
 	return failures ? 1 : 0;
 }

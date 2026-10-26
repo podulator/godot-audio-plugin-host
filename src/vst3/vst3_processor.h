@@ -70,6 +70,7 @@ public:
 	~Vst3Processor() override;
 
 	bool process(const AudioBlock &p_block) override;
+	bool wants_transport_splits() const override { return instrument; }
 	std::vector<std::string> output_names() const override;
 	void detach_from_audio() override {} // setProcessing(false) is allowed on the main thread.
 	bool pop_output_param(ParamEvent &r_event) override;
@@ -196,8 +197,9 @@ private:
 	// answers are read into `midi_map` when the plugin starts, and the audio thread only looks them
 	// up: per channel, controllers 0-127, then kAfterTouch (128, channel pressure), kPitchBend
 	// (129) and kCtrlProgramChange (130); kNoParamId where the plugin maps nothing. The transport
-	// goes in the ProcessContext, which VST3 has once per block: a loop jump inside a block reaches
-	// the plugin at the next block's start (CLAP gets it on its sample, as a transport event).
+	// goes in the ProcessContext, which VST3 has once per process() call: EffectRuntime starts a new
+	// call wherever a snapshot lands inside a block (wants_transport_splits), so a loop jump reaches
+	// the plugin on its sample, as CLAP's transport event does.
 	bool instrument = false;
 	bool event_bus = false; // the plugin has an event input bus, now switched on
 	Steinberg::Vst::EventList in_events{ 512 };

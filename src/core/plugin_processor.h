@@ -192,6 +192,11 @@ public:
 	virtual std::vector<ParamInfo> read_params() const { return {}; }
 	virtual bool take_params_changed() { return false; }
 
+	// AUDIO THREAD (a constant). True for a format that hears the transport only at the start of
+	// a process() call (VST3's ProcessContext): EffectRuntime then starts a new call wherever a
+	// TRANSPORT event falls inside a block, so the plugin gets the change on its sample.
+	virtual bool wants_transport_splits() const { return false; }
+
 	// ANY THREAD. True while the plugin sleeps: it said it has nothing to do (CLAP's
 	// CLAP_PROCESS_SLEEP), so process() outputs silence without calling it until something
 	// arrives (an event, audio at its input, or its own request).

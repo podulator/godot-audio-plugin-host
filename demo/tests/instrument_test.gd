@@ -253,9 +253,9 @@ func _test_vst3_notes(path: String) -> void:
 	await _unrig(r)
 
 
-# VST3's transport is the ProcessContext, once per block: the plugin follows tempo and position,
-# but a loop jump reaches it at the next block's start (CLAP gets it on its sample). Checked to
-# within a block (512 samples), and the tempo exactly.
+# VST3's transport is the ProcessContext, once per process() call; the host starts a new call
+# wherever a snapshot lands inside a block, so a loop jump reaches the plugin on its sample, as for
+# CLAP: jumps exactly a beat apart, landing exactly on the loop's start, and the tempo exact.
 func _test_vst3_transport(path: String) -> void:
 	var r := await _rig(path, "", "Inst_Vst3_Transport")
 	var midi: MidiDriver = r.midi
@@ -271,9 +271,8 @@ func _test_vst3_transport(path: String) -> void:
 	var beat := int(round(rate * 0.5))
 	_check(drops.size() >= 2, "VST3: the position folds back at the loop's end (%d jumps)" % drops.size())
 	if drops.size() >= 2:
-		_check(abs(drops[1] - drops[0] - beat) <= 512, "VST3: loop jumps a beat apart, within a block: %d samples, want %d" % [drops[1] - drops[0], beat])
-		var landed := frames[drops[0]].x * 1000.0
-		_check(landed >= 1.0 and landed < 1.0 + 512.0 / rate * 2.0 + 1e-6, "VST3: each jump lands within a block after beat 1 (%.5f)" % landed)
+		_check(drops[1] - drops[0] == beat, "VST3: loop jumps exactly a beat apart: %d samples, want %d" % [drops[1] - drops[0], beat])
+		_check(absf(frames[drops[0]].x * 1000.0 - 1.0) < 1e-4, "VST3: each jump lands on beat 1 (%.5f)" % (frames[drops[0]].x * 1000.0))
 	_check(absf(frames[frames.size() - 1].y - 0.12) < 1e-6, "VST3: the plugin is told 120 bpm, playing (%.4f)" % frames[frames.size() - 1].y)
 	await _unrig(r)
 

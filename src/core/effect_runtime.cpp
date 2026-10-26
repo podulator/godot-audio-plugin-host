@@ -235,9 +235,18 @@ void EffectRuntime::process_at(const float *p_src, float *p_dst, uint32_t p_fram
 	}
 	// Split into chunks of at most MAX_BLOCK. Each frame is CHANNELS floats, hence the
 	// `done * CHANNELS` when stepping through the interleaved buffers.
+	// A processor that hears the transport only per call also gets a new chunk at each TRANSPORT
+	// event inside the block (PluginProcessor::wants_transport_splits): the event then opens it.
+	const bool split_at_transport = processor->wants_transport_splits();
 	uint32_t done = 0;
 	while (done < p_frames) {
-		const uint32_t n = (p_frames - done < MAX_BLOCK) ? p_frames - done : MAX_BLOCK;
+		uint32_t n = (p_frames - done < MAX_BLOCK) ? p_frames - done : MAX_BLOCK;
+		for (uint32_t i = event_next; split_at_transport && i < event_count && events[i].frame_offset < done + n; i++) {
+			if (events[i].type == ParamEvent::TRANSPORT && events[i].frame_offset > done) {
+				n = events[i].frame_offset - done;
+				break;
+			}
+		}
 		process_chunk(p_src + done * CHANNELS, p_dst + done * CHANNELS, n, done);
 		done += n;
 	}

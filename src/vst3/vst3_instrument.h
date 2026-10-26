@@ -4,7 +4,8 @@
 // ClapInstrument (src/clap/clap_instrument.h explains how an instrument fits Godot, its threads and
 // lifetimes); what both share is in godot_common/instrument_common.h. Only loading differs, and
 // what VST3 itself does differently (src/vst3/vst3_processor.h, INSTRUMENTS): notes as VST3
-// events, controllers through the plugin's IMidiMapping, the transport once per block.
+// events, controllers through the plugin's IMidiMapping, the transport per process() call
+// (the runtime splits a block where it changes).
 
 #include "core/effect_runtime.h"
 #include "core/hosted_effect.h"

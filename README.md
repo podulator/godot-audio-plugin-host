@@ -168,7 +168,7 @@ $Hats.stream = drums.get_output(3)             # or one at a time
 ```
 - **CLAP** gets notes as CLAP note events where the plugin takes them, otherwise as MIDI 2.0 or MIDI 1.0; controllers, pitch bend, pressure and program changes go as MIDI.
 - **VST3** gets notes as VST3 note events. VST3 has no controller events: controllers, pitch bend, channel pressure and program changes reach the parameters the plugin assigns to them (its MIDI mapping), and do nothing where it assigns none.
-- **The transport:** the plugin follows the driver's tempo and song position, for tempo-synced arpeggiators, LFOs and delays. CLAP gets a loop jump on its sample; VST3 gets the transport once per audio block, so a jump reaches it up to 512 samples later.
+- **The transport:** the plugin follows the driver's tempo and song position, for tempo-synced arpeggiators, LFOs and delays. Both formats get a loop jump on its sample (for VST3, which hears the transport once per processing call, the host starts a new call there).
 - **Saved with the scene,** as for effects: the plugin's own state and the parameters set by hand. The parameters are sliders in the inspector.
 - **The plugin's window:** the **Open Plugin Window** button at the top of the instrument's inspector, or `open_editor()` from a script (editor only).
 - **Idle instruments cost nothing (CLAP):** a CLAP plugin that says it has nothing to do (no notes sounding) is not called until something arrives for it; `is_plugin_sleeping()` tells. CLAP effects sleep the same way while their input is silent.

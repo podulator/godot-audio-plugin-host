@@ -470,8 +470,15 @@ bool Vst3Processor::process(const AudioBlock &p_block) {
 	// Parameter changes. VST3 groups them per parameter: one IParamValueQueue each, holding
 	// (sampleOffset, value) points. addParameterData finds or claims a queue for the id from
 	// the ones setMaxParameters() made, and addPoint at an offset already present overwrites it.
-	// The transport for this block's first sample: worked out BEFORE the block's events, since a
-	// snapshot among them only holds from its own sample (from the next block, for VST3).
+	// The transport for this block's first sample. A snapshot at sample 0 applies now (the runtime
+	// starts a new call at every snapshot inside a block: wants_transport_splits), so the plugin
+	// gets a loop jump on its sample; context first, then the block's other events.
+	for (uint32_t i = 0; i < p_block.param_event_count; i++) {
+		const ParamEvent &ev = p_block.param_events[i];
+		if (ev.type == ParamEvent::TRANSPORT && ev.frame_offset == 0) {
+			transport_state.take(ev.midi_value != 0, ev.value, ev.transport_beat, ev.loop_start, ev.loop_end, sample_time);
+		}
+	}
 	fill_context();
 	input_changes.clearQueue();
 	in_events.clear();
@@ -479,7 +486,9 @@ bool Vst3Processor::process(const AudioBlock &p_block) {
 		const ParamEvent &ev = p_block.param_events[i];
 		const int32 offset = int32(ev.frame_offset < n ? ev.frame_offset : 0);
 		if (ev.type == ParamEvent::TRANSPORT) {
-			transport_state.take(ev.midi_value != 0, ev.value, ev.transport_beat, ev.loop_start, ev.loop_end, sample_time + offset);
+			if (offset != 0) { // not split here (an effect): it holds from its sample, heard next call
+				transport_state.take(ev.midi_value != 0, ev.value, ev.transport_beat, ev.loop_start, ev.loop_end, sample_time + offset);
+			}
 			continue;
 		}
 		if (ev.type == ParamEvent::MIDI) {
