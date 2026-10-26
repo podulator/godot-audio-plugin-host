@@ -1,6 +1,7 @@
 #include "clap_processor.h"
 #include "core/native_window.h"
 #include "core/channel_map.h"
+#include "core/midi_values.h"
 
 #include <cstdio>
 #include <cstring>
@@ -91,6 +92,14 @@ std::unique_ptr<ClapProcessor> ClapProcessor::create(std::shared_ptr<ClapLibrary
 	p->ext_gui = static_cast<const clap_plugin_gui_t *>(p->plugin->get_extension(p->plugin, CLAP_EXT_GUI));
 	p->ext_timer = static_cast<const clap_plugin_timer_support_t *>(p->plugin->get_extension(p->plugin, CLAP_EXT_TIMER_SUPPORT));
 	p->ext_fd = static_cast<const clap_plugin_posix_fd_support_t *>(p->plugin->get_extension(p->plugin, CLAP_EXT_POSIX_FD_SUPPORT));
+
+	// An instrument's note input: the first input note port, and how it wants notes sent.
+	if (auto *np = static_cast<const clap_plugin_note_ports_t *>(p->plugin->get_extension(p->plugin, CLAP_EXT_NOTE_PORTS))) {
+		clap_note_port_info_t info = {};
+		if (np->count(p->plugin, true) > 0 && np->get(p->plugin, 0, true, &info)) {
+			p->note_dialects = info.supported_dialects;
+		}
+	}
 
 	// Allocate everything process() will need now, while allocation is still allowed.
 	p->in_event_storage.resize(MAX_IN_EVENTS);
@@ -301,12 +310,24 @@ bool ClapProcessor::process(const AudioBlock &p_block) {
 	// header (size, time, space_id, type, flags). That lets a plugin walk a mixed list of notes,
 	// parameters and MIDI by reading only the header and switching on `type`. -1 in note_id,
 	// port, channel and key means "all": a plain knob move, not a per-note modulation.
-	in_event_count = p_block.param_event_count < MAX_IN_EVENTS ? p_block.param_event_count : MAX_IN_EVENTS;
-	for (uint32_t i = 0; i < in_event_count; i++) {
+	in_event_count = 0;
+	for (uint32_t i = 0; i < p_block.param_event_count && in_event_count < MAX_IN_EVENTS; i++) {
 		const ParamEvent &src = p_block.param_events[i];
-		clap_event_param_value_t &ev = in_event_storage[i];
+		const uint32_t time = src.frame_offset < n ? src.frame_offset : 0;
+		if (src.type == ParamEvent::MIDI) {
+			bool sent = false;
+			translate_midi(src, time, in_event_storage[in_event_count], sent);
+			if (sent) {
+				in_event_count++;
+			}
+			continue;
+		}
+		if (src.type != ParamEvent::PARAM) {
+			continue;
+		}
+		clap_event_param_value_t &ev = in_event_storage[in_event_count++].param;
 		ev.header.size = sizeof(clap_event_param_value_t);
-		ev.header.time = src.frame_offset < n ? src.frame_offset : 0;
+		ev.header.time = time;
 		ev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
 		ev.header.type = CLAP_EVENT_PARAM_VALUE;
 		ev.header.flags = 0;
@@ -360,6 +381,59 @@ bool ClapProcessor::process(const AudioBlock &p_block) {
 		}
 	}
 	return true;
+}
+
+// AUDIO THREAD. One MIDI event from the driver, in the way this plugin takes notes (its note port's
+// dialects). Notes go as CLAP note events where the plugin takes them (velocity 0..1, the note id
+// kept), else as MIDI 2.0, else as MIDI 1.0. Everything else (controllers, pitch bend, pressure,
+// program) has no CLAP event of its own, so it goes as MIDI 2.0 where taken (full resolution),
+// else MIDI 1.0. A plugin with no note input gets nothing: r_sent stays false.
+void ClapProcessor::translate_midi(const ParamEvent &p_src, uint32_t p_time, InEvent &r_out, bool &r_sent) {
+	using gaph::midi::Kind;
+	const Kind kind = Kind(p_src.midi_kind);
+	const bool is_note = kind == Kind::NOTE_ON || kind == Kind::NOTE_OFF || kind == Kind::CHOKE;
+	const bool clap_notes = (note_dialects & CLAP_NOTE_DIALECT_CLAP) != 0;
+	const bool midi2 = (note_dialects & CLAP_NOTE_DIALECT_MIDI2) != 0;
+	const bool midi1 = (note_dialects & (CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_MIDI_MPE)) != 0;
+	r_sent = false;
+	r_out = {};
+	r_out.header.time = p_time;
+	r_out.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+	r_out.header.flags = 0;
+	if (is_note && clap_notes) {
+		clap_event_note_t &ev = r_out.note;
+		ev.header.size = sizeof(clap_event_note_t);
+		ev.header.type = kind == Kind::NOTE_ON ? CLAP_EVENT_NOTE_ON : (kind == Kind::NOTE_OFF ? CLAP_EVENT_NOTE_OFF : CLAP_EVENT_NOTE_CHOKE);
+		// CLAP's note ids are int32; ours count up from 1 within a driver, far below the limit.
+		ev.note_id = p_src.note_id >= 0 ? int32_t(p_src.note_id & 0x7FFFFFFF) : -1;
+		ev.port_index = 0;
+		ev.channel = int16_t(p_src.midi_channel - 1);
+		ev.key = int16_t(p_src.midi_index);
+		ev.velocity = double(p_src.midi_value) / 65535.0;
+		r_sent = true;
+		return;
+	}
+	if (midi2) {
+		clap_event_midi2_t &ev = r_out.midi2;
+		ev.header.size = sizeof(clap_event_midi2_t);
+		ev.header.type = CLAP_EVENT_MIDI2;
+		ev.port_index = 0;
+		uint32_t words[2];
+		gaph::midi::encode_midi2(kind, p_src.midi_channel, p_src.midi_index, p_src.midi_value, words);
+		ev.data[0] = words[0];
+		ev.data[1] = words[1];
+		ev.data[2] = ev.data[3] = 0;
+		r_sent = true;
+		return;
+	}
+	if (midi1) {
+		clap_event_midi_t &ev = r_out.midi;
+		ev.header.size = sizeof(clap_event_midi_t);
+		ev.header.type = CLAP_EVENT_MIDI;
+		ev.port_index = 0;
+		gaph::midi::encode_midi1(kind, p_src.midi_channel, p_src.midi_index, p_src.midi_value, ev.data);
+		r_sent = true;
+	}
 }
 
 uint32_t ClapProcessor::in_events_size(const clap_input_events_t *p_list) {
@@ -499,7 +573,7 @@ void ClapProcessor::on_param_set(uint32_t p_id, double p_value) {
 	if (active || !ext_params) {
 		return;
 	}
-	clap_event_param_value_t &ev = in_event_storage[0];
+	clap_event_param_value_t &ev = in_event_storage[0].param;
 	ev = {};
 	ev.header.size = sizeof(ev);
 	ev.header.space_id = CLAP_CORE_EVENT_SPACE_ID;

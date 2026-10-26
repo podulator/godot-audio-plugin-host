@@ -1,5 +1,6 @@
 #include "clap_library.h"
 #include "clap_editor_plugin.h"
+#include "clap_instrument.h"
 #include "clap_plugin_effect.h"
 #include "clap_sidechain_send.h"
 #include "godot_common/menu_classes.h"
@@ -113,6 +114,8 @@ static void initialize_clap_host(ModuleInitializationLevel p_level) {
 	GDREGISTER_VIRTUAL_CLASS(ClapPluginEffect);
 	GDREGISTER_INTERNAL_CLASS(ClapPluginEffectInstance);
 	GDREGISTER_CLASS(ClapSidechainSend);
+	GDREGISTER_CLASS(ClapInstrument);
+	GDREGISTER_INTERNAL_CLASS(ClapInstrumentPlayback);
 	GDREGISTER_INTERNAL_CLASS(ClapSidechainSendInstance);
 	register_menu_classes();
 }

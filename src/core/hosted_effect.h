@@ -103,6 +103,11 @@ public:
 	// The same, but heard p_delay_us from now, to the sample (block_clock.h). The stored value,
 	// and so the inspector, changes at once.
 	void set_param_at(uint32_t p_id, double p_value, int64_t p_delay_us);
+	// MAIN THREAD, for instruments: a MIDI event to every running instance, and a DROP (see
+	// EffectRuntime::queue_drop). Instances still waiting for their plugin miss them, as they
+	// miss parameter changes: a plugin that is not running yet has no notes to play.
+	void queue_midi(const ParamEvent &p_event);
+	void queue_drop(uint64_t p_source, int64_t p_from_us);
 	double get_param(uint32_t p_id) const;
 	bool is_param_set(uint32_t p_id) const { return values.count(p_id) != 0; }
 	const std::map<uint32_t, double> &get_values() const { return values; }

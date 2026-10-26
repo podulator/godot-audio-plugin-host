@@ -1,5 +1,8 @@
 #include "effect_runtime.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <cstring>
 
 namespace gaph {
@@ -44,11 +47,73 @@ bool EffectRuntime::queue_param(uint32_t p_param_id, double p_value, int64_t p_d
 	return param_queue.push(ev);
 }
 
+bool EffectRuntime::queue_midi(const ParamEvent &p_midi) {
+	ParamEvent ev = p_midi;
+	ev.type = ParamEvent::MIDI;
+	ev.due_frame = -1;
+	return param_queue.push(ev);
+}
+
+bool EffectRuntime::queue_drop(uint64_t p_source, int64_t p_from_us) {
+	ParamEvent ev;
+	ev.type = ParamEvent::DROP;
+	ev.source = p_source;
+	ev.due_us = p_from_us;
+	return param_queue.push(ev);
+}
+
+// AUDIO THREAD. A DROP: every MIDI event from its source due at or after its time goes, both those
+// waiting for later blocks and those already placed in this one. Everything queued before the DROP
+// has been placed by now (the queue keeps order), so nothing it should catch is still in transit.
+void EffectRuntime::apply_drop(const ParamEvent &p_drop) {
+	auto doomed = [&](const ParamEvent &e) {
+		return e.type == ParamEvent::MIDI && e.source == p_drop.source && e.due_us != 0 && e.due_us >= p_drop.due_us;
+	};
+	pending.erase(std::remove_if(pending.begin(), pending.end(), doomed), pending.end());
+	uint32_t keep = 0;
+	for (uint32_t i = 0; i < event_count; i++) {
+		if (!doomed(events[i])) {
+			events[keep++] = events[i];
+		}
+	}
+	event_count = keep;
+}
+
 // AUDIO THREAD. Builds this block's sorted event list from the pending list and the queue.
 // An event due within the block gets its frame; one due later waits in `pending`; one whose
 // moment has already passed goes at frame 0 (it can only be late, never early). When either
 // list is full, events are delivered at frame 0 rather than dropped: a change heard slightly
 // early beats a change never heard.
+// AUDIO THREAD. A MIDI event's stream position: from its source's mapping (see MIDI SPACING in the
+// header), set up or renewed from the clock when needed.
+int64_t EffectRuntime::midi_frame_for(const ParamEvent &p_event) {
+	const int64_t from_clock = clock.absolute_frame_for(p_event.due_us);
+	MidiAnchor *anchor = nullptr;
+	MidiAnchor *oldest = &midi_anchors[0];
+	for (MidiAnchor &a : midi_anchors) {
+		if (a.used != 0 && a.source == p_event.source) {
+			anchor = &a;
+			break;
+		}
+		if (a.used < oldest->used) {
+			oldest = &a;
+		}
+	}
+	const double rate = clock.get_rate();
+	const int64_t tolerance = int64_t(double(MIDI_REANCHOR_US) * rate / 1e6);
+	if (anchor) {
+		const int64_t spaced = anchor->base_frame + int64_t(std::llround(double(p_event.due_us - anchor->base_us) * rate / 1e6));
+		if (std::llabs(spaced - from_clock) <= tolerance) {
+			anchor->used = ++midi_anchor_uses;
+			return spaced;
+		}
+	} else {
+		anchor = oldest;
+	}
+	*anchor = MidiAnchor{ p_event.source, p_event.due_us, from_clock, ++midi_anchor_uses };
+	return from_clock;
+}
+
 void EffectRuntime::gather_events(uint32_t p_frames) {
 	event_count = 0;
 	event_next = 0;
@@ -60,6 +125,9 @@ void EffectRuntime::gather_events(uint32_t p_frames) {
 		for (ParamEvent &waiting : pending) {
 			waiting.due_frame = -1;
 		}
+		for (MidiAnchor &a : midi_anchors) {
+			a = MidiAnchor{};
+		}
 	}
 	// An event's frame within this block, from the stream position it was given when it first
 	// arrived (see BlockClock::absolute_frame_for for why once, not every block).
@@ -68,7 +136,7 @@ void EffectRuntime::gather_events(uint32_t p_frames) {
 			return 0;
 		}
 		if (ev.due_frame < 0) {
-			ev.due_frame = clock.absolute_frame_for(ev.due_us);
+			ev.due_frame = ev.type == ParamEvent::MIDI ? midi_frame_for(ev) : clock.absolute_frame_for(ev.due_us);
 		}
 		return ev.due_frame - block_start;
 	};
@@ -108,7 +176,11 @@ void EffectRuntime::gather_events(uint32_t p_frames) {
 	}
 	ParamEvent ev;
 	while (param_queue.pop(ev)) {
-		place(ev);
+		if (ev.type == ParamEvent::DROP) {
+			apply_drop(ev);
+		} else {
+			place(ev);
+		}
 	}
 }
 

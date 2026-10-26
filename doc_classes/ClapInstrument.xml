@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="ClapInstrument" inherits="AudioStream" api_type="extension" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		A CLAP instrument plugin, played as an audio stream and fed by a [MidiDriver].
+	</brief_description>
+	<description>
+		Plays a CLAP instrument (a synth, a sampler) through any [AudioStreamPlayer], [AudioStreamPlayer2D] or [AudioStreamPlayer3D], on any bus. It is a [MidiDriver] target: bind it to a channel, start the player, and send notes.
+		[codeblock]
+		var piano := ClapInstrument.new()
+		piano.plugin_path = "Surge XT.clap"
+		$Player.stream = piano
+		$Player.play()
+		var midi := MidiDriver.create(1)
+		add_child(midi)
+		midi.set_channel_target(1, piano)
+		midi.note_on(1, 60, 100, 1.0)
+		[/codeblock]
+		Notes land on the exact audio sample the driver planned them for. Notes go to the plugin as CLAP note events where it takes them, otherwise as MIDI 2.0 or MIDI 1.0; controllers, pitch bend, pressure and program always go as MIDI.
+		One playback at a time: keep the player's [member AudioStreamPlayer.max_polyphony] at 1, as every playback gets every note. Plugin windows and saved plugin state are not there yet.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_frames_processed">
+			<return type="int" />
+			<description>
+				Frames the plugin has produced so far, over all playbacks.
+			</description>
+		</method>
+		<method name="get_load_error">
+			<return type="String" />
+			<description>
+				Why the plugin did not load, or an empty string.
+			</description>
+		</method>
+		<method name="get_parameter">
+			<return type="float" />
+			<param index="0" name="id" type="int" />
+			<description>
+				Parameter [param id]'s current value.
+			</description>
+		</method>
+		<method name="get_parameters">
+			<return type="Dictionary[]" />
+			<description>
+				The plugin's parameters: [code]id[/code], [code]name[/code], [code]min[/code], [code]max[/code] and [code]default[/code] for each.
+			</description>
+		</method>
+		<method name="get_plugin_info">
+			<return type="Dictionary" />
+			<description>
+				The plugin's [code]id[/code], [code]name[/code], [code]vendor[/code] and [code]version[/code].
+			</description>
+		</method>
+		<method name="is_plugin_loaded">
+			<return type="bool" />
+			<description>
+				[code]true[/code] once the plugin has loaded.
+			</description>
+		</method>
+		<method name="midi_event">
+			<return type="void" />
+			<param index="0" name="time_us" type="int" />
+			<param index="1" name="source" type="int" />
+			<param index="2" name="kind" type="int" />
+			<param index="3" name="channel" type="int" />
+			<param index="4" name="index" type="int" />
+			<param index="5" name="value" type="int" />
+			<param index="6" name="note_id" type="int" />
+			<description>
+				A [MidiDriver] target method: the driver calls it with each event (see [MidiDriver] for the arguments).
+			</description>
+		</method>
+		<method name="midi_stop">
+			<return type="void" />
+			<param index="0" name="time_us" type="int" />
+			<param index="1" name="source" type="int" />
+			<param index="2" name="mode" type="int" />
+			<description>
+				A [MidiDriver] target method: drops what [param source] sent for [param time_us] onwards, and ends its sounding notes there as [param mode] says (see [enum MidiDriver.StopMode]).
+			</description>
+		</method>
+		<method name="set_parameter">
+			<return type="void" />
+			<param index="0" name="id" type="int" />
+			<param index="1" name="value" type="float" />
+			<description>
+				Sets parameter [param id] to [param value], in the plugin's own range.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="plugin_id" type="String" setter="set_plugin_id" getter="get_plugin_id" default="&quot;&quot;">
+			Which plugin of a file holding several; empty for the first.
+		</member>
+		<member name="plugin_path" type="String" setter="set_plugin_path" getter="get_plugin_path" default="&quot;&quot;">
+			The [code].clap[/code] file: relative to a plugin folder, [code]res://[/code] or absolute, as for [ClapPluginEffect].
+		</member>
+	</members>
+</class>

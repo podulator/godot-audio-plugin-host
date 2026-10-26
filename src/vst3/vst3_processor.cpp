@@ -345,6 +345,9 @@ bool Vst3Processor::process(const AudioBlock &p_block) {
 	input_changes.clearQueue();
 	for (uint32_t i = 0; i < p_block.param_event_count; i++) {
 		const ParamEvent &ev = p_block.param_events[i];
+		if (ev.type != ParamEvent::PARAM) {
+			continue; // MIDI is for instruments, which come to VST3 later
+		}
 		int32 queue_index = 0, point_index = 0;
 		if (IParamValueQueue *q = input_changes.addParameterData(ev.param_id, queue_index)) {
 			q->addPoint(int32(ev.frame_offset < n ? ev.frame_offset : 0), ev.value, point_index);

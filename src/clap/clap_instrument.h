@@ -1,0 +1,120 @@
+#pragma once
+
+// ClapInstrument: a CLAP instrument plugin as an AudioStream. Played by any AudioStreamPlayer
+// (2D and 3D too), on any bus, and fed by a MidiDriver: the instrument resource is the driver's
+// target, midi.set_channel_target(1, $Piano.stream).
+//
+// HOW IT FITS GODOT
+// An AudioStream is a description; playing it makes an AudioStreamPlayback, whose _mix() Godot
+// calls on the AUDIO thread to fill each block. Here a playback runs one plugin instance through
+// the same EffectRuntime the effects use, with silence as its input. That runtime already places
+// timed events on the exact sample, so MIDI simply travels along with parameter changes.
+//
+// THREADS AND LIFETIMES (checked in Godot 4.7's servers/audio/audio_server.cpp)
+// A playback is made on the MAIN thread (AudioStreamPlayer::play), before Godot adds it to the
+// mix, and Godot drops its own reference on the main thread too, after taking it out of the mix
+// (AudioServer::update). So the plugin instance is created and destroyed on the main thread,
+// never while the audio thread can reach it, as for effects. Version 1 assumes one playback at a
+// time (a player's max_polyphony of 1): every playback would get every note.
+//
+// MIDI IN (the MidiDriver target protocol, see midi_host's MidiDriver)
+//   midi_event(time_us, source, kind, channel, index, value, note_id): queued to the plugin.
+//   midi_stop(time_us, source, mode): the audio side drops that source's events from time_us on;
+//   which notes still sound then is worked out here, on the main thread (core/midi_target.h), and
+//   they get a note-off (RELEASE) or a choke (CUT) at time_us.
+
+#include "clap_library.h"
+#include "clap_processor.h"
+#include "core/effect_runtime.h"
+#include "core/hosted_effect.h"
+#include "core/midi_target.h"
+
+#include <godot_cpp/classes/audio_stream.hpp>
+#include <godot_cpp/classes/audio_stream_playback.hpp>
+
+#include <memory>
+#include <vector>
+
+namespace godot {
+
+class ClapInstrument;
+
+class ClapInstrumentPlayback : public AudioStreamPlayback {
+	GDCLASS(ClapInstrumentPlayback, AudioStreamPlayback);
+
+public:
+	~ClapInstrumentPlayback() override;
+	void setup(const Ref<ClapInstrument> &p_instrument);
+
+	void _start(double p_from_pos) override;
+	void _stop() override;
+	bool _is_playing() const override;
+	double _get_playback_position() const override { return 0.0; }
+	int32_t _mix(AudioFrame *p_buffer, float p_rate_scale, int32_t p_frames) override;
+
+	uint64_t get_frames_processed() const { return runtime.get_frames_processed(); }
+
+protected:
+	static void _bind_methods() {}
+
+private:
+	Ref<ClapInstrument> instrument;
+	gaph::EffectRuntime runtime;
+	std::vector<float> silence; // the plugin's (unused) input: zeros, allocated once
+	bool playing = false;
+};
+
+class ClapInstrument : public AudioStream {
+	GDCLASS(ClapInstrument, AudioStream);
+
+public:
+	ClapInstrument();
+	~ClapInstrument() override;
+
+	void set_plugin_path(const String &p_path);
+	String get_plugin_path() const { return plugin_path; }
+	void set_plugin_id(const String &p_id);
+	String get_plugin_id() const { return plugin_id; }
+	bool is_plugin_loaded();
+	String get_load_error();
+	TypedArray<Dictionary> get_parameters();
+	void set_parameter(int64_t p_id, double p_value);
+	double get_parameter(int64_t p_id);
+	Dictionary get_plugin_info();
+
+	// The MidiDriver target protocol.
+	void midi_event(int64_t p_time_us, int64_t p_source, int p_kind, int p_channel, int p_index, int64_t p_value, int64_t p_note_id);
+	void midi_stop(int64_t p_time_us, int64_t p_source, int p_mode);
+
+	Ref<AudioStreamPlayback> _instantiate_playback() const override;
+	String _get_stream_name() const override;
+	double _get_length() const override { return 0.0; }
+	bool _is_monophonic() const override { return true; }
+
+	gaph::HostedEffect &get_hosted() { return hosted; }
+	int64_t get_frames_processed();
+
+protected:
+	static void _bind_methods();
+
+private:
+	void ensure_loaded();
+	void load_plugin();
+	void connect_idle();
+	void on_process_frame();
+	void queue(int p_kind, int p_channel, int p_index, uint32_t p_value, int64_t p_note_id, uint64_t p_source, int64_t p_time_us);
+
+	String plugin_path;
+	String plugin_id;
+	String load_error;
+	bool load_pending = false;
+	bool idle_connected = false;
+	std::shared_ptr<gaph::ClapLibrary> library;
+	std::unique_ptr<gaph::ClapProcessor> probe;
+	// mutable: Godot's _instantiate_playback() is const, but a new playback joins the instrument's
+	// running instances (HostedEffect's registry).
+	mutable gaph::HostedEffect hosted;
+	gaph::midi::NoteBook notes;
+};
+
+} // namespace godot

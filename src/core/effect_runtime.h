@@ -75,6 +75,12 @@ public:
 	// Returns false if the queue is full and the change was dropped.
 	bool queue_param(uint32_t p_param_id, double p_value, int64_t p_due_us = 0);
 
+	// MAIN THREAD, for instruments. A MIDI message (its fields as ParamEvent describes, due_us its
+	// time), and "drop every MIDI event from p_source due from p_from_us on" (MidiDriver's
+	// midi_stop). Both travel in the same queue as parameter changes, so they keep their order.
+	bool queue_midi(const ParamEvent &p_midi);
+	bool queue_drop(uint64_t p_source, int64_t p_from_us);
+
 	// MAIN THREAD, before audio runs. Needed to turn timestamps into sample positions.
 	void set_sample_rate(double p_rate) { clock.set_sample_rate(p_rate); }
 
@@ -90,6 +96,7 @@ public:
 
 private:
 	void gather_events(uint32_t p_frames);
+	void apply_drop(const ParamEvent &p_drop);
 	void process_chunk(const float *p_src, float *p_dst, uint32_t p_frames, uint32_t p_offset);
 
 	std::atomic<uint64_t> frames_processed{ 0 };
@@ -103,6 +110,24 @@ private:
 	std::vector<ParamEvent> chunk_events; // One chunk's slice, offsets relative to the chunk.
 	std::vector<ParamEvent> pending; // Due after this block; capacity MAX_PENDING_EVENTS.
 	uint32_t clock_restarts_seen = 0; // BlockClock::get_restarts() when `pending` was last placed
+
+	// MIDI SPACING. The clock's anchor creeps (1 us a block, block_clock.h), so two events mapped
+	// half a second apart, as a MIDI driver hands them out, can land a sample or two off their
+	// spacing. Musical timing must not: each MIDI source keeps one mapping, from its first event,
+	// and places the rest arithmetically from it, so 500 ms is exactly 22050 samples at 44.1 kHz.
+	// The mapping is renewed when it is more than MIDI_REANCHOR_US from the clock (the CPU's and
+	// the sound card's clocks drift apart slowly), and after a gap in the audio.
+	static constexpr uint32_t MAX_MIDI_SOURCES = 8;
+	static constexpr int64_t MIDI_REANCHOR_US = 1000;
+	struct MidiAnchor {
+		uint64_t source = 0;
+		int64_t base_us = 0;
+		int64_t base_frame = 0;
+		uint64_t used = 0; // for replacing the least recently used when all are taken
+	};
+	MidiAnchor midi_anchors[MAX_MIDI_SOURCES];
+	uint64_t midi_anchor_uses = 0;
+	int64_t midi_frame_for(const ParamEvent &p_event);
 
 	// Planar buffers: one allocation per direction, holding both channels back to back,
 	// [L0..L511][R0..R511]. in_ptrs[c] points at the start of channel c, which is the shape

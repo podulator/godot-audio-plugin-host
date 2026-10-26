@@ -423,6 +423,49 @@ static void test_change_after_a_gap() {
 	}
 }
 
+// MIDI events from one source, handed over half a second apart (a MidiDriver's lookahead), keep
+// their spacing to the sample, although the clock's anchor creeps between them; and a DROP takes
+// out exactly that source's events from its time on.
+static void test_midi_spacing_and_drop() {
+	const double rate = 44100;
+	EffectRuntime rt;
+	rt.set_sample_rate(rate);
+	auto *rec = new EventRecorder();
+	rt.exchange_processor(std::unique_ptr<PluginProcessor>(rec));
+	std::vector<float> in(2 * 512), out(2 * 512);
+	const int64_t period = int64_t(512 * 1e6 / rate);
+	int64_t now = 20000000;
+	for (int cb = 0; cb < 100; cb++, now += period) { // settled
+		rt.process_at(in.data(), out.data(), 512, now);
+	}
+	auto midi = [&](uint64_t p_source, int64_t p_due) {
+		ParamEvent e;
+		e.type = ParamEvent::MIDI;
+		e.source = p_source;
+		e.due_us = p_due;
+		rt.queue_midi(e);
+	};
+	const int64_t first = now + 100000;
+	midi(1, first);
+	for (int cb = 0; cb < 47; cb++, now += period) { // half a second: the anchor creeps ~47 us
+		rt.process_at(in.data(), out.data(), 512, now);
+	}
+	midi(1, first + 500000);
+	midi(2, first + 600000); // another source
+	midi(1, first + 700000); // dropped below
+	rt.queue_drop(1, first + 650000);
+	for (int cb = 0; cb < 120; cb++, now += period) {
+		rt.process_at(in.data(), out.data(), 512, now);
+	}
+	CHECK(rec->at.size() == 3);
+	if (rec->at.size() == 3) {
+		CHECK(rec->at[1] - rec->at[0] == 22050); // 500 ms, exactly
+		if (rec->at[1] - rec->at[0] != 22050) {
+			std::printf("      MIDI spacing: %lld samples, want 22050\n", (long long)(rec->at[1] - rec->at[0]));
+		}
+	}
+}
+
 int main() {
 	test_queue_basics();
 	test_queue_threads();
@@ -434,6 +477,7 @@ int main() {
 	test_sample_accurate_spacing();
 	test_spacing_while_clock_settles();
 	test_change_after_a_gap();
+	test_midi_spacing_and_drop();
 	std::printf(failures ? "%d FAILURES\n" : "all core tests passed\n", failures);
 	return failures ? 1 : 0;
 }

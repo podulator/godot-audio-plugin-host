@@ -109,6 +109,7 @@ public:
 	// (absolute_frame_for) are off by the gap: whoever keeps them works them out again when this
 	// changes.
 	uint32_t get_restarts() const { return restarts; }
+	double get_rate() const { return rate; }
 
 private:
 	double rate = 48000.0;

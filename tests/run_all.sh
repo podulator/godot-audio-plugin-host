@@ -37,7 +37,7 @@ fi
 
 run_scene() {
 	echo "[godot $1]"
-	timeout 300 godot --headless --path "$root/demo" "res://tests/$1.tscn" 2>&1 | grep -E "^(PASS|FAIL|SKIP|SMOKE|CLAP|VST3|BOTH|SIDECHAIN|STATE|LOCK|INFO|MENU|PATHS|PLATFORM|MIDI)|WARNING|ERROR"
+	timeout 300 godot --headless --path "$root/demo" "res://tests/$1.tscn" 2>&1 | grep -E "^(PASS|FAIL|SKIP|SMOKE|CLAP|VST3|BOTH|SIDECHAIN|STATE|LOCK|INFO|MENU|PATHS|PLATFORM|MIDI|INSTRUMENT)|WARNING|ERROR"
 	return "${PIPESTATUS[0]}"
 }
 run_scene smoke
@@ -52,6 +52,7 @@ run_scene lock_test
 GAPH_MENU_CLASSES=1 CLAP_PATH="$own" GAPH_VST3_PATH="$own" run_scene menu_test
 run_scene paths_test
 run_scene midi_test
+run_scene instrument_test
 echo "[plugin windows on Windows: Win32Window and the CLAP GUI path, under Wine, nothing on screen]"
 "$root/tests/windows/run.sh" | grep -E "^(FAIL|SKIP|WIN32|CLAP GUI|VST3 GUI)"
 echo "[platform test: our own plugins, both formats, as on every CI runner]"

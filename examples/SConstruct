@@ -140,6 +140,19 @@ if ARGUMENTS.get("test_plugin", "no") == "yes":
         test_env.Append(LIBS=["objc"])
     test_lib = plugin_binary(test_env, test_target, ["#../tests/plugins/gaph_test_plugin.c"])
     Default(test_lib)
+    # The test instrument (tests/plugins/gaph_test_instrument.c): no GUI, no extra libraries.
+    instrument_target = binary(out + "/gaph_test_instrument.clap", "gaph_test_instrument", "clap")
+    Default(plugin_binary(clap_env.Clone(), instrument_target, ["#../tests/plugins/gaph_test_instrument.c"]))
+    if plat == "macos":
+        Default(env.Textfile(out + "/gaph_test_instrument.clap/Contents/Info.plist", [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+            '<plist version="1.0"><dict>',
+            "<key>CFBundleExecutable</key><string>gaph_test_instrument</string>",
+            "<key>CFBundleIdentifier</key><string>org.godot-audio-plugin-host.test-instrument</string>",
+            "<key>CFBundlePackageType</key><string>BNDL</string>",
+            "</dict></plist>",
+        ]))
     if plat == "macos":
         Default(env.Textfile(out + "/gaph_test.clap/Contents/Info.plist", [
             '<?xml version="1.0" encoding="UTF-8"?>',

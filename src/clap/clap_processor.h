@@ -187,8 +187,22 @@ private:
 	std::vector<clap_audio_buffer_t> input_buffers;
 	std::vector<clap_audio_buffer_t> output_buffers;
 
-	// Parameter events in CLAP's own struct, rebuilt every block from AudioBlock::param_events.
-	std::vector<clap_event_param_value_t> in_event_storage;
+	// The events of one block in CLAP's own structs, rebuilt every block from
+	// AudioBlock::param_events: parameter changes, and for an instrument notes and MIDI. Every CLAP
+	// event starts with the same header, so one slot type holds any of them (a union: the members
+	// share the memory, and the header tells the plugin which one it is).
+	union InEvent {
+		clap_event_header_t header;
+		clap_event_param_value_t param;
+		clap_event_note_t note;
+		clap_event_midi_t midi;
+		clap_event_midi2_t midi2;
+	};
+	std::vector<InEvent> in_event_storage;
+	// The plugin's note input (CLAP_EXT_NOTE_PORTS): which ways of sending notes it takes
+	// (CLAP_NOTE_DIALECT_* bits), 0 if it has no note input at all.
+	uint32_t note_dialects = 0;
+	void translate_midi(const ParamEvent &p_src, uint32_t p_time, InEvent &r_out, bool &r_sent);
 	uint32_t in_event_count = 0;
 	clap_input_events_t in_events = {};
 	clap_output_events_t out_events = {};

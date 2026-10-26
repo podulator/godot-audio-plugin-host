@@ -211,6 +211,14 @@ void HostedEffect::set_param(uint32_t p_id, double p_value) {
 	set_param_at(p_id, p_value, 0);
 }
 
+void HostedEffect::queue_midi(const ParamEvent &p_event) {
+	registry.for_each([&](EffectRuntime &r) { r.queue_midi(p_event); });
+}
+
+void HostedEffect::queue_drop(uint64_t p_source, int64_t p_from_us) {
+	registry.for_each([&](EffectRuntime &r) { r.queue_drop(p_source, p_from_us); });
+}
+
 void HostedEffect::set_param_at(uint32_t p_id, double p_value, int64_t p_delay_us) {
 	// The timestamp is taken here, on the main thread, as close to the script's call as possible.
 	const int64_t due = host_time_us() + (p_delay_us > 0 ? p_delay_us : 0);

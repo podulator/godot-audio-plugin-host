@@ -60,6 +60,26 @@ struct ParamEvent {
 	// AUDIO THREAD only: the event's position in the whole stream, worked out once when the audio
 	// thread first sees it (-1 until then). See BlockClock::absolute_frame_for.
 	int64_t due_frame = -1;
+
+	// INSTRUMENTS. The same path carries MIDI to an instrument, so notes get the parameters'
+	// sample-exact timing for free. `type` says what this event is; effects see only PARAM.
+	//   PARAM: a parameter change (param_id, value).
+	//   MIDI:  a MIDI message (midi_kind is a gaph::midi::Kind, see midi_values.h; channel 1-16;
+	//          midi_index the key or controller; midi_value at MIDI 2.0 resolution; note_id).
+	//   DROP:  not for the plugin. "Drop every MIDI event from `source` due at or after due_us":
+	//          what an instrument does for MidiDriver's midi_stop (EffectRuntime handles it).
+	enum Type : uint8_t {
+		PARAM,
+		MIDI,
+		DROP,
+	};
+	Type type = PARAM;
+	uint8_t midi_kind = 0;
+	uint8_t midi_channel = 1;
+	uint16_t midi_index = 0;
+	uint32_t midi_value = 0;
+	int64_t note_id = -1;
+	uint64_t source = 0; // the sending MidiDriver's instance id
 };
 
 // One block of audio, as handed to a plugin.
