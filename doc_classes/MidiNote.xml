@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="MidiNote" inherits="RefCounted" api_type="extension" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		One note played by a [MidiDriver].
+	</brief_description>
+	<description>
+		[method MidiDriver.note_on] returns one. MIDI itself knows a note only by its channel and key, so two notes on the same key and channel cannot be told apart; a [MidiNote] refers to exactly one of them.
+		Dropping the reference does not end the note. A note with no length sounds until [method off] (or [method MidiDriver.note_off], or the transport stopping) ends it.
+		[codeblock]
+		var n := midi.note_on(1, 60, 100)
+		await get_tree().create_timer(0.5).timeout
+		n.off()
+		[/codeblock]
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_channel" qualifiers="const">
+			<return type="int" />
+			<description>
+				The note's channel, 1 to 16.
+			</description>
+		</method>
+		<method name="get_id" qualifiers="const">
+			<return type="int" />
+			<description>
+				The note's id, unique within its driver. Targets receive it as [code]note_id[/code] with each of the note's events.
+			</description>
+		</method>
+		<method name="get_key" qualifiers="const">
+			<return type="int" />
+			<description>
+				The note's key, 0 to 127 (60 is middle C).
+			</description>
+		</method>
+		<method name="is_active" qualifiers="const">
+			<return type="bool" />
+			<description>
+				[code]true[/code] until the note has ended: while it waits for its time, and while it sounds.
+			</description>
+		</method>
+		<method name="is_sounding" qualifiers="const">
+			<return type="bool" />
+			<description>
+				[code]true[/code] from the moment the note starts until it ends.
+			</description>
+		</method>
+		<method name="off">
+			<return type="void" />
+			<param index="0" name="at" type="float" default="-1.0" />
+			<description>
+				Ends this note, now or at [param at] (see [method MidiDriver.note_on] for [param at]). A note that has not started yet never starts.
+			</description>
+		</method>
+	</methods>
+</class>

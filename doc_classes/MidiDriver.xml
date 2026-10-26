@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="MidiDriver" inherits="Node" api_type="extension" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Sends MIDI to instruments and other targets, with a tempo, a transport and sample-exact timing.
+	</brief_description>
+	<description>
+		A real-time MIDI driver: notes, controllers and pitch bend sent from scripts, ad hoc or planned on a beat grid, and handed to the target bound to each channel. Events planned ahead land on the exact audio sample.
+		[codeblock]
+		var midi := MidiDriver.create(1)       # MIDI 1.0 value ranges
+		add_child(midi)
+		midi.set_channel_target(1, $Piano)
+		midi.play()
+		var n := midi.note_on(1, 60, 100)      # now, held until n.off()
+		midi.note_on(1, 64, 90, 0.5, midi.next(1.0))   # on the next beat, half a beat long
+		[/codeblock]
+		[b]Channels[/b] are 1 to 16, as on MIDI gear (Godot's [InputEventMIDI] counts from 0). One target may listen on several channels.
+		[b]When:[/b] every message takes an optional last argument [code]at[/code]: [constant NOW] (the default), or a position from [method next], [method after] or [method at_beat]. "Now" is heard one audio block (about 11.6 ms) later; anything planned ahead is exact.
+		[b]Values[/b] are in the ranges of [member midi_version]: velocity, controllers and pressures 0-127 and pitch bend -8192 to 8191 for MIDI 1.0; 16-bit velocity, 32-bit controllers, pressures and pitch bend for MIDI 2.0. Targets always receive them at MIDI 2.0 resolution.
+		[b]Targets[/b] are objects with two methods, so a GDScript synth can be one:
+		[codeblock]
+		func midi_event(time_us: int, source: int, kind: int, channel: int, index: int, value: int, note_id: int) -&gt; void
+		func midi_stop(time_us: int, source: int, mode: int) -&gt; void
+		[/codeblock]
+		[code]time_us[/code] is on [method get_time_us]'s clock; [code]kind[/code] is an [enum EventKind], [code]mode[/code] a [enum StopMode], and [code]source[/code] the driver's instance id.
+		The driver keeps running while the scene tree is paused; [method pause] pauses the music.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="after" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="beats" type="float" />
+			<description>
+				The position [param beats] beats from now, as an [code]at[/code]. [constant NOW] while stopped.
+			</description>
+		</method>
+		<method name="all_notes_off">
+			<return type="void" />
+			<param index="0" name="at" type="float" default="-1.0" />
+			<description>
+				Ends every note this driver is playing, now or at [param at].
+			</description>
+		</method>
+		<method name="at_beat" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="song_beat" type="float" />
+			<description>
+				The next time the song reaches beat [param song_beat], as an [code]at[/code]: with a loop, the next time round. A beat already passed plays now; one outside a running loop is never reached (NaN, which the messages refuse). [constant NOW] while stopped.
+			</description>
+		</method>
+		<method name="channel_pressure">
+			<return type="void" />
+			<param index="0" name="channel" type="int" />
+			<param index="1" name="value" type="int" />
+			<param index="2" name="at" type="float" default="-1.0" />
+			<description>
+				Channel pressure (aftertouch for the whole channel).
+			</description>
+		</method>
+		<method name="clear_loop">
+			<return type="void" />
+			<description>
+				Turns the loop off.
+			</description>
+		</method>
+		<method name="control_change">
+			<return type="void" />
+			<param index="0" name="channel" type="int" />
+			<param index="1" name="controller" type="int" />
+			<param index="2" name="value" type="int" />
+			<param index="3" name="at" type="float" default="-1.0" />
+			<description>
+				Controller [param controller] (0-127) to [param value]: 1 is the mod wheel, 7 volume, 10 pan, 11 expression, 64 sustain, 74 brightness.
+			</description>
+		</method>
+		<method name="create" qualifiers="static">
+			<return type="MidiDriver" />
+			<param index="0" name="midi_version" type="int" default="1" />
+			<description>
+				A new driver for MIDI [param midi_version] (1 or 2), which sets the value ranges. Add it to the scene tree: it runs every frame.
+			</description>
+		</method>
+		<method name="get_channel_target" qualifiers="const">
+			<return type="Object" />
+			<param index="0" name="channel" type="int" />
+			<description>
+				The object listening on [param channel], or [code]null[/code].
+			</description>
+		</method>
+		<method name="get_controller_max" qualifiers="const">
+			<return type="int" />
+			<description>
+				The largest controller value for this driver's MIDI version: 127, or 4294967295.
+			</description>
+		</method>
+		<method name="get_pitch_bend_max" qualifiers="const">
+			<return type="int" />
+			<description>
+				The largest pitch bend: 8191, or 2147483647. The smallest is one more than its negative.
+			</description>
+		</method>
+		<method name="get_position" qualifiers="const">
+			<return type="float" />
+			<description>
+				The song position now, in beats (a loop folds it back).
+			</description>
+		</method>
+		<method name="get_time_us" qualifiers="static">
+			<return type="int" />
+			<description>
+				Microseconds on the clock targets receive times on.
+			</description>
+		</method>
+		<method name="get_velocity_max" qualifiers="const">
+			<return type="int" />
+			<description>
+				The largest velocity for this driver's MIDI version: 127, or 65535.
+			</description>
+		</method>
+		<method name="is_playing" qualifiers="const">
+			<return type="bool" />
+			<description>
+				[code]true[/code] while the transport runs.
+			</description>
+		</method>
+		<method name="next" qualifiers="const">
+			<return type="float" />
+			<param index="0" name="grid" type="float" />
+			<description>
+				The next multiple of [param grid] beats on the song's grid, as an [code]at[/code]: [code]next(1.0)[/code] is the next beat, [code]next(4.0)[/code] the next bar in 4/4, [code]next(0.25)[/code] the next sixteenth. Exactly on the grid already: now. [constant NOW] while stopped.
+			</description>
+		</method>
+		<method name="note_off">
+			<return type="void" />
+			<param index="0" name="channel" type="int" />
+			<param index="1" name="key" type="int" />
+			<param index="2" name="at" type="float" default="-1.0" />
+			<description>
+				Ends every note of this driver on [param channel] and [param key]. To end one particular note, use [method MidiNote.off].
+			</description>
+		</method>
+		<method name="note_on">
+			<return type="MidiNote" />
+			<param index="0" name="channel" type="int" />
+			<param index="1" name="key" type="int" />
+			<param index="2" name="velocity" type="int" />
+			<param index="3" name="length" type="float" default="0.0" />
+			<param index="4" name="at" type="float" default="-1.0" />
+			<description>
+				Starts a note and returns it. [param velocity] 0 is a note-off, as in MIDI. With a [param length] in beats above 0 the note ends by itself; otherwise it sounds until ended. Returns [code]null[/code] for values out of range.
+			</description>
+		</method>
+		<method name="panic">
+			<return type="void" />
+			<description>
+				Silences every note at once and stops, for emergencies.
+			</description>
+		</method>
+		<method name="pause">
+			<return type="void" />
+			<description>
+				Pauses the music: the position stays, sounding notes end (their release tails ring out), and what was planned plays after [method play].
+			</description>
+		</method>
+		<method name="pitch_bend">
+			<return type="void" />
+			<param index="0" name="channel" type="int" />
+			<param index="1" name="value" type="int" />
+			<param index="2" name="at" type="float" default="-1.0" />
+			<description>
+				Pitch bend for the whole channel; 0 is no bend.
+			</description>
+		</method>
+		<method name="play">
+			<return type="void" />
+			<description>
+				Starts the transport, or resumes after [method pause]: then each channel's last controller, pitch bend, pressure and program values are sent again first.
+			</description>
+		</method>
+		<method name="poly_aftertouch">
+			<return type="void" />
+			<param index="0" name="channel" type="int" />
+			<param index="1" name="key" type="int" />
+			<param index="2" name="value" type="int" />
+			<param index="3" name="at" type="float" default="-1.0" />
+			<description>
+				Pressure on one key.
+			</description>
+		</method>
+		<method name="program_change">
+			<return type="void" />
+			<param index="0" name="channel" type="int" />
+			<param index="1" name="program" type="int" />
+			<param index="2" name="at" type="float" default="-1.0" />
+			<description>
+				Selects program (sound) [param program], 0-127.
+			</description>
+		</method>
+		<method name="seek">
+			<return type="void" />
+			<param index="0" name="song_beat" type="float" />
+			<description>
+				Moves the song to beat [param song_beat]. Every note ends and planned events are dropped, as a DAW re-plans from the new position. A paused or stopped transport stays so.
+			</description>
+		</method>
+		<method name="set_channel_target">
+			<return type="void" />
+			<param index="0" name="channel" type="int" />
+			<param index="1" name="target" type="Object" />
+			<description>
+				Sends [param channel]'s events to [param target], an object with [code]midi_event[/code] and [code]midi_stop[/code] methods; [code]null[/code] for none. Notes already sounding end where they started.
+			</description>
+		</method>
+		<method name="set_loop">
+			<return type="void" />
+			<param index="0" name="start" type="float" />
+			<param index="1" name="end" type="float" />
+			<description>
+				Loops the song between beats [param start] and [param end], once it gets there.
+			</description>
+		</method>
+		<method name="stop">
+			<return type="void" />
+			<description>
+				Stops and goes back to the start: every note ends, and planned events are dropped.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="bpm" type="float" setter="set_bpm" getter="get_bpm" default="120.0">
+			The tempo, in beats per minute. A change takes effect from now; planned events move with it.
+		</member>
+		<member name="lookahead_ms" type="float" setter="set_lookahead_ms" getter="get_lookahead_ms" default="100.0">
+			How far ahead events are handed to targets. Longer copes with longer frame drops; shorter means [method pause], [method seek] and tempo changes take back less.
+		</member>
+		<member name="midi_version" type="int" setter="set_midi_version" getter="get_midi_version" default="1">
+			1 or 2: the MIDI version whose value ranges the driver takes. Targets always receive MIDI 2.0 resolution.
+		</member>
+		<member name="process_mode" type="int" setter="set_process_mode" getter="get_process_mode" overrides="Node" enum="Node.ProcessMode" default="3" />
+	</members>
+	<signals>
+		<signal name="beat">
+			<param index="0" name="running_beat" type="int" />
+			<param index="1" name="song_beat" type="float" />
+			<description>
+				Emitted on each beat while playing. [param running_beat] counts beats since [method play]; [param song_beat] is the song position there (a loop folds it back). Emitted on the main thread, so up to a frame late: for gameplay, not for timing notes (plan those with [method next] instead).
+			</description>
+		</signal>
+	</signals>
+	<constants>
+		<constant name="NOW" value="-1">
+			As an [code]at[/code]: at once, heard one audio block later.
+		</constant>
+		<constant name="EVENT_NOTE_ON" value="0" enum="EventKind">
+			[code]index[/code] is the key, [code]value[/code] the 16-bit velocity.
+		</constant>
+		<constant name="EVENT_NOTE_OFF" value="1" enum="EventKind">
+			[code]index[/code] is the key, [code]value[/code] the 16-bit release velocity.
+		</constant>
+		<constant name="EVENT_CONTROL" value="2" enum="EventKind">
+			[code]index[/code] is the controller number, [code]value[/code] 32-bit.
+		</constant>
+		<constant name="EVENT_PITCH_BEND" value="3" enum="EventKind">
+			[code]value[/code] is 32-bit, 0x80000000 is no bend.
+		</constant>
+		<constant name="EVENT_POLY_PRESSURE" value="4" enum="EventKind">
+			[code]index[/code] is the key, [code]value[/code] 32-bit.
+		</constant>
+		<constant name="EVENT_CHANNEL_PRESSURE" value="5" enum="EventKind">
+			[code]value[/code] is 32-bit.
+		</constant>
+		<constant name="EVENT_PROGRAM" value="6" enum="EventKind">
+			[code]value[/code] is the program, 0-127.
+		</constant>
+		<constant name="STOP_WITHDRAW" value="0" enum="StopMode">
+			Drop the events from this source not heard yet; sounding notes go on (a tempo change).
+		</constant>
+		<constant name="STOP_RELEASE" value="1" enum="StopMode">
+			As [constant STOP_WITHDRAW], and end every sounding note from this source with a note-off (pause, stop, seek).
+		</constant>
+		<constant name="STOP_CUT" value="2" enum="StopMode">
+			As [constant STOP_RELEASE], but silence the notes at once ([method panic]).
+		</constant>
+	</constants>
+</class>

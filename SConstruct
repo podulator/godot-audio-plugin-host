@@ -61,7 +61,7 @@ def vst3_sdk_sources():
     return out
 
 
-def build_extension(name, source_dirs, extra_cpppath=(), extra_sources=(), extra_defines=(), extra_flags=(), extra_link=None, exceptions=False, docs_prefix=None):
+def build_extension(name, source_dirs, extra_cpppath=(), extra_sources=(), extra_defines=(), extra_flags=(), extra_link=None, exceptions=False, docs_prefix=None, with_core=True):
     lib_env = env.Clone()
     if exceptions:
         # Undo godot-cpp's switch-off for this library: the -fno-exceptions flag (GCC, Clang) or
@@ -86,7 +86,7 @@ def build_extension(name, source_dirs, extra_cpppath=(), extra_sources=(), extra
     sources = []
     # .mm (Objective-C++) only on macOS: src/core/cocoa_window.mm, the plugin window there.
     patterns = ["/*.cpp", "/*.mm"] if env["platform"] == "macos" else ["/*.cpp"]
-    for d in ["src/core"] + list(source_dirs):
+    for d in (["src/core"] if with_core else []) + list(source_dirs):
         for f in [g for p in patterns for g in Glob(d + p)]:
             # Each library gets its own object files, since the environments differ.
             sources.append(lib_env.SharedObject("{}/{}/{}".format(objdir, d, f.name.rsplit(".", 1)[0]), f))
@@ -158,6 +158,10 @@ else:
     vst3_link = {"LIBS": ["dl"]}
 
 
+
+# The MIDI driver: format-neutral, and its core is header-only (src/core/midi_*.h), so none of the
+# core's .cpp files (plugin hosting, windows) go in. Every platform, Android too.
+library_midi = build_extension("midi_host", ["src/midi"], docs_prefix="Midi", with_core=False)
 
 # Android: CLAP only. The VST 3 SDK does not support Android, and there are no VST 3 plugins for it.
 # vst3_host gets an empty extension instead (src/vst3_android/stub.c says why).

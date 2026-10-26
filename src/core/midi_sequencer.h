@@ -154,6 +154,17 @@ public:
 		}
 	}
 
+	// Every note of this driver, ended at p_at (MIDI's "all notes off", for this driver's notes).
+	void end_every_note(double p_at, int64_t p_now_us) {
+		std::vector<int64_t> ids;
+		for (const auto &[id, n] : notes) {
+			ids.push_back(id);
+		}
+		for (int64_t id : ids) {
+			end_note(id, p_at, p_now_us);
+		}
+	}
+
 	// --- The transport -----------------------------------------------------------------------
 
 	// Starts, or resumes after pause(): then each channel's last heard controller, pitch bend,

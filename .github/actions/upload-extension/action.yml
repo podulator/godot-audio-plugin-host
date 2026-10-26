@@ -1,5 +1,5 @@
 name: Upload the addons
-description: Uploads both addon folders (binaries and .gdextension files) for one platform.
+description: Uploads the addon folders (binaries and .gdextension files) for one platform.
 
 runs:
   using: "composite"
@@ -10,4 +10,5 @@ runs:
         path: |
           demo/addons/clap_host/
           demo/addons/vst3_host/
+          demo/addons/midi_host/
         retention-days: 14
