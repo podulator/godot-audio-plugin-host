@@ -150,8 +150,9 @@ std::vector<Vst3EffectEntry> vst3_scan_bundle(const std::string &p_path, bool &r
 		if (info) {
 			r_from_moduleinfo = true;
 			for (const auto &c : info->classes) {
-				if (is_effect(c.category, c.subCategories)) {
-					out.push_back(Vst3EffectEntry{ c.cid, c.name, c.vendor, c.version, c.subCategories });
+				const bool fx = is_effect(c.category, c.subCategories), inst = is_instrument(c.category, c.subCategories);
+				if (fx || inst) {
+					out.push_back(Vst3EffectEntry{ c.cid, c.name, c.vendor, c.version, c.subCategories, fx, inst });
 				}
 			}
 			return out;
@@ -163,8 +164,11 @@ std::vector<Vst3EffectEntry> vst3_scan_bundle(const std::string &p_path, bool &r
 	if (!mod) {
 		return out;
 	}
-	for (const auto &c : vst3_effect_classes(mod)) {
-		out.push_back(Vst3EffectEntry{ c.ID().toString(), c.name(), c.vendor(), c.version(), c.subCategories() });
+	for (const auto &c : mod->getFactory().classInfos()) {
+		const bool fx = is_effect(c.category(), c.subCategories()), inst = is_instrument(c.category(), c.subCategories());
+		if (fx || inst) {
+			out.push_back(Vst3EffectEntry{ c.ID().toString(), c.name(), c.vendor(), c.version(), c.subCategories(), fx, inst });
+		}
 	}
 	return out;
 }

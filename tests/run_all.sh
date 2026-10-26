@@ -88,6 +88,15 @@ else
 	echo "FAIL  editor menu: $menu"
 	exit 1
 fi
+echo "[real editor: a player's Stream dropdown lists instruments by name]"
+streams=$("$root/tests/editor_probe.sh" res://tests/stream_probe.gd CLAP_PATH="$own" GAPH_VST3_PATH="$own" | grep "STREAMPROBE items" || true)
+if [[ "$streams" == *"Clap_GAPHTestInstrument"* && "$streams" == *"Vst3_GAPHTestVST3Instrument"* && "$streams" != *"ClapInstrument,"* && "$streams" != *"Vst3Instrument,"* && "$streams" != *"Output"* && "$streams" != *"Gain"* ]]; then
+	echo "STREAMS OK: instruments by name, generic classes and effects hidden"
+else
+	echo "FAIL  editor stream dropdown: ${streams:-no answer from the editor}"
+	exit 1
+fi
+
 echo "[real editor: a click on the enable checkbox doesn't open the window]"
 probe=$("$root/tests/editor_probe.sh" res://tests/toggle_probe.gd -u DISPLAY | grep -E "TOGGLEPROBE (A|B|C) (begin|end)|TOGGLEPROBE SKIP|cannot open the plugin window" || true)
 # "|| true": grep -c exits 1 when it counts zero, which is the expected answer for B, and

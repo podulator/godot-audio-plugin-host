@@ -44,16 +44,18 @@ std::vector<VST3::Hosting::ClassInfo> vst3_effect_classes(const VST3::Hosting::M
 // The module's instrument classes (subcategory Instrument), for Vst3Instrument.
 std::vector<VST3::Hosting::ClassInfo> vst3_instrument_classes(const VST3::Hosting::Module::Ptr &p_module);
 
-// One effect class, as a scan reports it.
+// One effect or instrument class, as a scan reports it. A class marked "Instrument|Fx" is both.
 struct Vst3EffectEntry {
 	std::string id; // 32 hex digits, what plugin_id takes
 	std::string name;
 	std::string vendor;
 	std::string version;
 	std::vector<std::string> sub_categories;
+	bool effect = false; // for Vst3PluginEffect
+	bool instrument = false; // for Vst3Instrument
 };
 
-// MAIN THREAD. The effect classes in the bundle at p_path, for scanning.
+// MAIN THREAD. The effect and instrument classes in the bundle at p_path, for scanning.
 //
 // A VST3 bundle may carry Contents/Resources/moduleinfo.json, a description of its classes
 // written at build time (SDK 3.7.5 and later). Reading it is far cheaper than loading the binary:

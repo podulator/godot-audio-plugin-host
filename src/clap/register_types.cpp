@@ -22,8 +22,11 @@ using namespace godot;
 
 static gaph_godot::MenuClasses menu_classes;
 
-// One "Add Effect" entry per installed CLAP effect (see godot_common/menu_classes.h).
-// EDITOR ONLY: saved scenes refer to ClapPluginEffect, never to these, so games don't need them.
+// One "Add Effect" entry per installed CLAP effect (see godot_common/menu_classes.h), and one
+// "New ..." entry per installed CLAP instrument in a player's Stream dropdown (the same trick:
+// a class under ClapInstrument whose create function makes a plain ClapInstrument, path set).
+// EDITOR ONLY: saved scenes refer to ClapPluginEffect and ClapInstrument, never to these, so
+// games don't need them.
 // Godot already knows it is the editor when extensions initialise (checked: is_editor_hint() is
 // true here under --editor and false in a running game). GAPH_MENU_CLASSES=1 forces the scan,
 // so headless tests can check it without starting the editor.
@@ -40,6 +43,7 @@ static void register_menu_classes() {
 	struct Found {
 		String path, id, name;
 		bool single;
+		bool instrument; // else an effect
 	};
 	gaph_godot::ScanGuard guard("clap");
 	std::set<std::string> used;
@@ -57,31 +61,54 @@ static void register_menu_classes() {
 			std::shared_ptr<gaph::ClapLibrary> lib = gaph::ClapLibrary::open(path, err);
 			if (lib) {
 				for (const clap_plugin_descriptor_t *d : lib->get_descriptors()) {
-					// Only effects: an instrument on a bus would replace the bus audio with its own.
-					bool effect = false;
+					// Effects for the bus menu, instruments for the Stream dropdown (an instrument
+					// on a bus would replace the bus audio with its own). One that is both is both.
+					bool effect = false, instrument = false;
 					for (const char *const *f = d->features; f && *f; f++) {
 						effect = effect || std::string(*f) == CLAP_PLUGIN_FEATURE_AUDIO_EFFECT;
+						instrument = instrument || std::string(*f) == CLAP_PLUGIN_FEATURE_INSTRUMENT;
 					}
+					// Stored relative to its search folder, so the scene works on other machines.
+					const Found base{ gaph_godot::portable_path(path, dirs), gaph_godot::to_godot(d->id),
+						gaph_godot::to_godot(d->name ? d->name : d->id), lib->get_descriptors().size() == 1, false };
 					if (effect) {
-						// Stored relative to its search folder, so the scene works on other machines.
-						found.push_back(Found{ gaph_godot::portable_path(path, dirs), gaph_godot::to_godot(d->id),
-								gaph_godot::to_godot(d->name ? d->name : d->id), lib->get_descriptors().size() == 1 });
+						found.push_back(base);
+					}
+					if (instrument) {
+						Found inst = base;
+						inst.instrument = true;
+						found.push_back(inst);
 					}
 				}
 			}
 		}
-		String detail = err.empty() ? itos(int64_t(found.size())) + " effect(s)" : gaph_godot::to_godot(err);
+		int effects = 0, instruments = 0;
+		for (const Found &f : found) {
+			(f.instrument ? instruments : effects)++;
+		}
+		String detail = err.empty() ? itos(effects) + " effect(s), " + itos(instruments) + " instrument(s)" : gaph_godot::to_godot(err);
 		for (const Found &f : found) {
 			detail += (&f == &found.front() ? " (" : ", ") + f.name;
 		}
 		if (!found.empty()) {
 			detail += ")";
 		}
-		guard.end(path, err.empty(), detail, int(found.size()));
+		guard.end(path, err.empty(), detail, effects, instruments);
 
 		for (const Found &f : found) {
 			const std::string name = gaph_godot::MenuClasses::class_name_for("Clap", gaph_godot::to_std(f.name), used);
-			// The lambda keeps its own copy of `f` (captured by value).
+			// The lambdas keep their own copy of `f` (captured by value).
+			if (f.instrument) {
+				menu_classes.add(StringName(name.c_str()), "ClapInstrument", [f]() -> Object * {
+					ClapInstrument *inst = memnew(ClapInstrument);
+					inst->set_plugin_path(f.path);
+					if (!f.single) {
+						inst->set_plugin_id(f.id);
+					}
+					return inst;
+				});
+				continue;
+			}
 			menu_classes.add(StringName(name.c_str()), "ClapPluginEffect", [f]() -> Object * {
 				ClapPluginEffect *fx = memnew(ClapPluginEffect);
 				fx->set_plugin_path(f.path);
@@ -115,9 +142,12 @@ static void initialize_clap_host(ModuleInitializationLevel p_level) {
 	GDREGISTER_VIRTUAL_CLASS(ClapPluginEffect);
 	GDREGISTER_INTERNAL_CLASS(ClapPluginEffectInstance);
 	GDREGISTER_CLASS(ClapSidechainSend);
-	GDREGISTER_CLASS(ClapInstrument);
+	// Virtual too, for the same reason: a player's Stream dropdown ("New ...") skips them, while
+	// the per-plugin entries stand in for the instrument. An output stream only comes from
+	// get_output(), so it is never offered there.
+	GDREGISTER_VIRTUAL_CLASS(ClapInstrument);
 	GDREGISTER_INTERNAL_CLASS(ClapInstrumentPlayback);
-	GDREGISTER_CLASS(ClapInstrumentOutput);
+	GDREGISTER_VIRTUAL_CLASS(ClapInstrumentOutput);
 	GDREGISTER_INTERNAL_CLASS(ClapSidechainSendInstance);
 	register_menu_classes();
 }

@@ -22,8 +22,8 @@ using namespace godot;
 
 static gaph_godot::MenuClasses menu_classes;
 
-// One "Add Effect" entry per installed VST3 effect, editor only: see clap/register_types.cpp,
-// which this mirrors. Bundles with a moduleinfo.json are listed without loading their binary.
+// One "Add Effect" entry per installed VST3 effect, and one Stream dropdown entry per installed
+// VST3 instrument, editor only: see clap/register_types.cpp, which this mirrors. Bundles with a moduleinfo.json are listed without loading their binary.
 // Folders: Project Settings > Audio > Plugin Host > VST3, then the system ones, which include
 // GAPH_VST3_PATH (VST3 has no standard variable for extra folders; CLAP has CLAP_PATH).
 static void register_menu_classes() {
@@ -47,7 +47,12 @@ static void register_menu_classes() {
 		// vst3_scan_bundle releases the module before returning, unless something else still
 		// holds it (the module cache only keeps weak references).
 		const std::vector<gaph::Vst3EffectEntry> found = gaph::vst3_scan_bundle(path, from_info, err);
-		String detail = err.empty() ? itos(int64_t(found.size())) + String(" effect(s)") : gaph_godot::to_godot(err);
+		int effects = 0, instruments = 0;
+		for (const gaph::Vst3EffectEntry &e : found) {
+			effects += e.effect ? 1 : 0;
+			instruments += e.instrument ? 1 : 0;
+		}
+		String detail = err.empty() ? itos(effects) + String(" effect(s), ") + itos(instruments) + String(" instrument(s)") : gaph_godot::to_godot(err);
 		for (const gaph::Vst3EffectEntry &e : found) {
 			detail += String(&e == &found.front() ? " (" : ", ") + gaph_godot::to_godot(e.name);
 		}
@@ -57,18 +62,29 @@ static void register_menu_classes() {
 		if (err.empty()) {
 			detail += from_info ? String(", from moduleinfo.json") : String(", binary loaded");
 		}
-		guard.end(path, err.empty(), detail, int(found.size()));
+		guard.end(path, err.empty(), detail, effects, instruments);
 
 		for (const gaph::Vst3EffectEntry &e : found) {
-			const std::string name = gaph_godot::MenuClasses::class_name_for("Vst3", e.name, used);
 			const String godot_path = gaph_godot::portable_path(path, dirs); // relative: works elsewhere
 			const String godot_id = gaph_godot::to_godot(e.id);
-			menu_classes.add(StringName(name.c_str()), "Vst3PluginEffect", [godot_path, godot_id]() -> Object * {
-				Vst3PluginEffect *fx = memnew(Vst3PluginEffect);
-				fx->set_plugin_path(godot_path);
-				fx->set_plugin_id(godot_id);
-				return fx;
-			});
+			if (e.effect) {
+				const std::string name = gaph_godot::MenuClasses::class_name_for("Vst3", e.name, used);
+				menu_classes.add(StringName(name.c_str()), "Vst3PluginEffect", [godot_path, godot_id]() -> Object * {
+					Vst3PluginEffect *fx = memnew(Vst3PluginEffect);
+					fx->set_plugin_path(godot_path);
+					fx->set_plugin_id(godot_id);
+					return fx;
+				});
+			}
+			if (e.instrument) {
+				const std::string name = gaph_godot::MenuClasses::class_name_for("Vst3", e.name, used);
+				menu_classes.add(StringName(name.c_str()), "Vst3Instrument", [godot_path, godot_id]() -> Object * {
+					Vst3Instrument *inst = memnew(Vst3Instrument);
+					inst->set_plugin_path(godot_path);
+					inst->set_plugin_id(godot_id);
+					return inst;
+				});
+			}
 		}
 	}
 	guard.finish();
@@ -94,9 +110,10 @@ static void initialize_vst3_host(ModuleInitializationLevel p_level) {
 	GDREGISTER_VIRTUAL_CLASS(Vst3PluginEffect);
 	GDREGISTER_INTERNAL_CLASS(Vst3PluginEffectInstance);
 	GDREGISTER_CLASS(Vst3SidechainSend);
-	GDREGISTER_CLASS(Vst3Instrument);
+	// Virtual for the Stream dropdown, as for ClapInstrument (clap/register_types.cpp).
+	GDREGISTER_VIRTUAL_CLASS(Vst3Instrument);
 	GDREGISTER_INTERNAL_CLASS(Vst3InstrumentPlayback);
-	GDREGISTER_CLASS(Vst3InstrumentOutput);
+	GDREGISTER_VIRTUAL_CLASS(Vst3InstrumentOutput);
 	GDREGISTER_INTERNAL_CLASS(Vst3SidechainSendInstance);
 	register_menu_classes();
 }

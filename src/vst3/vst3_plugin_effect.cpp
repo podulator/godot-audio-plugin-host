@@ -445,6 +445,9 @@ TypedArray<Dictionary> Vst3PluginEffect::scan_plugins(const PackedStringArray &p
 			continue;
 		}
 		for (const gaph::Vst3EffectEntry &e : found) {
+			if (!e.effect) {
+				continue;
+			}
 			Dictionary d;
 			d["id"] = String::utf8(e.id.c_str());
 			d["name"] = String::utf8(e.name.c_str());

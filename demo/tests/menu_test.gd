@@ -1,5 +1,5 @@
 extends Node
-# Per-plugin "Add Effect" entries. Run twice:
+# Per-plugin "Add Effect" entries, and per-plugin instruments for a player's Stream dropdown. Run twice:
 #   GAPH_MENU_CLASSES=1 CLAP_PATH=... GAPH_VST3_PATH=... godot ... res://tests/menu_test.tscn
 #       -> entries present, and each creates the GENERIC effect with the path set.
 #   godot ... res://tests/menu_test.tscn  (a plain game run)
@@ -15,9 +15,14 @@ func _ready() -> void:
 			func(c): return ClassDB.can_instantiate(c) and (c.begins_with("Clap_") or c.begins_with("Vst3_")))
 	entries.sort()
 	print("      menu entries: ", ", ".join(entries))
+	# And what a player's Stream dropdown offers ("New ...", editor_resource_picker.cpp).
+	var instruments: Array = Array(ClassDB.get_inheriters_from_class("AudioStream")).filter(
+			func(c): return ClassDB.can_instantiate(c) and (c.begins_with("Clap_") or c.begins_with("Vst3_")))
+	instruments.sort()
+	print("      instrument entries: ", ", ".join(instruments))
 
 	if not forced:
-		_check(entries.is_empty(), "plain game run: no per-plugin classes registered")
+		_check(entries.is_empty() and instruments.is_empty(), "plain game run: no per-plugin classes registered")
 		_finish()
 		return
 
@@ -36,7 +41,28 @@ func _ready() -> void:
 			_check(want in entries, "%s is in the Add Effect menu" % want)
 		else:
 			print("SKIP  %s: plugin not installed" % want)
-	_check(not entries.any(func(c): return c.contains("URCHIN")), "the URCHIN instrument is left out")
+	_check(not entries.any(func(c): return c.contains("URCHIN")), "the URCHIN instrument is left out of the effects")
+	_check(not instruments.any(func(c): return c.contains("Gain") or c.contains("Dragonfly")), "no effect among the instruments")
+	var expect_inst := {
+		"Clap_GAPHTestInstrument": FileAccess.file_exists(own.path_join("gaph_test_instrument.clap")),
+		"Clap_GAPHTestDrums": FileAccess.file_exists(own.path_join("gaph_test_instrument.clap")),
+		"Vst3_GAPHTestVST3Instrument": DirAccess.dir_exists_absolute(OS.get_environment("GAPH_VST3_PATH").path_join("gaph_test_vst3_instrument.vst3")),
+		"Vst3_GAPHTestVST3Drums": DirAccess.dir_exists_absolute(OS.get_environment("GAPH_VST3_PATH").path_join("gaph_test_vst3_drums.vst3")),
+	}
+	for want in expect_inst:
+		if expect_inst[want]:
+			_check(want in instruments, "%s is offered as a player's stream" % want)
+		else:
+			print("SKIP  %s: plugin not built" % want)
+	for name in instruments:
+		var inst: AudioStream = ClassDB.instantiate(name)
+		var generic := "ClapInstrument" if name.begins_with("Clap_") else "Vst3Instrument"
+		var ok: bool = inst != null and inst.get_class() == generic and inst.is_plugin_loaded()
+		_check(ok, "%s creates a %s with the plugin loaded (%s)" % [name, generic, inst.get_plugin_info().get("name", "?") if inst else "null"])
+	if not instruments.is_empty():
+		ResourceSaver.save(ClassDB.instantiate(instruments[0]), "user://menu_test_instrument.tres")
+		var line := FileAccess.get_file_as_string("user://menu_test_instrument.tres").split("\n")[0]
+		_check(line.contains('type="ClapInstrument"') or line.contains('type="Vst3Instrument"'), "a saved instrument is the generic class: %s" % line)
 
 	for name in entries:
 		var fx: AudioEffect = ClassDB.instantiate(name)

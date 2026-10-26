@@ -51,7 +51,7 @@ runs everything that can run on this machine, and needs Godot (4.5 or later) on 
 | `tests/macos/` | plugin windows on macOS (macOS only) |
 | `tests/android/` | the platform test (CLAP) in a real Android export on a device or emulator; needs `ANDROID_HOME` with build-tools, a JDK and Godot's Android export templates, and skips without a device (`ANDROID_SERIAL` picks one when several are connected) |
 | `tests/scan_guard/` | a plugin that crashes the editor while it is scanned, and the editor surviving it |
-| editor probes | a real (headless) editor: the Add Effect menu, plugin windows opening on click, the instruments' Open Plugin Window button, the help pages |
+| editor probes | a real (headless) editor: the Add Effect menu, instruments in a player's Stream list, plugin windows opening on click, the instruments' Open Plugin Window button, the help pages |
 
 Our own plugins mean nothing has to be installed. Tests for third-party plugins (Dragonfly Reverb for a real reverb tail and a real plugin window, OneTrick URCHIN for refusing instruments) skip themselves where those are missing.
 

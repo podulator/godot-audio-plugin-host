@@ -92,19 +92,20 @@ public:
 
 	// After p_plugin has been loaded and its library released again (so a crash on unload
 	// counts too). p_detail: what it held ("2 effects (A, B)"), or why it failed if !p_ok.
-	void end(const std::string &p_plugin, bool p_ok, const String &p_detail, int p_effects) {
+	void end(const std::string &p_plugin, bool p_ok, const String &p_detail, int p_effects, int p_instruments = 0) {
 		state->set_value("scan", "in_progress", "");
 		state->save(path);
 		log(String(p_ok ? "loaded   " : "failed   ") + String::utf8(p_plugin.c_str()) + ": " + p_detail);
 		plugins += p_ok ? 1 : 0;
 		failed += p_ok ? 0 : 1;
 		effects += p_effects;
+		instruments += p_instruments;
 	}
 
 	// The one line for the Output panel.
 	void finish() {
 		const uint64_t ms = Time::get_singleton()->get_ticks_msec() - started_ms;
-		String line = format + " scan: " + itos(effects) + " effects from " + itos(plugins) + " plugins in " + itos(int64_t(ms)) + " ms";
+		String line = format + " scan: " + itos(effects) + " effects and " + itos(instruments) + " instruments from " + itos(plugins) + " plugins in " + itos(int64_t(ms)) + " ms";
 		if (failed) {
 			line += ", " + itos(failed) + " failed to load";
 		}
@@ -134,7 +135,7 @@ private:
 	Ref<ConfigFile> state;
 	Ref<FileAccess> log_file;
 	uint64_t started_ms = 0;
-	int plugins = 0, failed = 0, skipped = 0, effects = 0;
+	int plugins = 0, failed = 0, skipped = 0, effects = 0, instruments = 0;
 };
 
 } // namespace gaph_godot

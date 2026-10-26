@@ -88,7 +88,7 @@ Every class, property, method and signal is described in the editor's help: pres
 - `plugin_id` is the VST3 class id as 32 hex digits; empty means the first effect in the bundle.
 - Parameter values are always **0..1** (VST3 exchanges them normalised). `get_parameter_text()` shows the real value with its unit.
 
-The Add Effect menu lists effects only: instruments play as [audio streams](#instruments), not on a bus.
+The Add Effect menu lists effects only: instruments play as [audio streams](#instruments), not on a bus, and are listed in a player's **Stream** property instead.
 
 ## What is saved with a scene
 
@@ -147,6 +147,8 @@ midi.beat.connect(_on_beat)
 ## Instruments
 
 `ClapInstrument` and `Vst3Instrument` play an instrument plugin as an audio stream: put one in a player's `stream`, play the player, and bind the instrument to a `MidiDriver` channel.
+
+In the editor, a player's **Stream** property lists every installed instrument under **New**, by format and name: `Clap_SurgeXT`, `Vst3_OneTrickURCHIN`, and so on. Picking one sets up a `ClapInstrument` or `Vst3Instrument` with that plugin, which is what the scene saves. From a script:
 
 ```gdscript
 var synth := ClapInstrument.new()             # or Vst3Instrument, with a .vst3 bundle
@@ -263,7 +265,7 @@ xattr -dr com.apple.quarantine addons/clap_host addons/vst3_host
 
 ## Troubleshooting
 
-**A plugin is missing from the Add Effect menu.** Check that it is an effect (instruments are left out) and that it is in one of the [plugin folders](#where-plugins-are-found), then restart the editor. The Output panel shows a one-line summary of each scan. Every step is logged in `clap_scan.log` and `vst3_scan.log`, in `godot/godot-audio-plugin-host/` inside your user configuration folder:
+**A plugin is missing from the Add Effect menu, or an instrument from a player's Stream list.** Check that it is the right kind (effects go in the menu, instruments in the Stream list) and that it is in one of the [plugin folders](#where-plugins-are-found), then restart the editor. The Output panel shows a one-line summary of each scan. Every step is logged in `clap_scan.log` and `vst3_scan.log`, in `godot/godot-audio-plugin-host/` inside your user configuration folder:
 - `~/.config` on Linux,
 - `%APPDATA%` on Windows,
 - `~/Library/Application Support` on macOS.
