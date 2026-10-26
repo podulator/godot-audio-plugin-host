@@ -278,6 +278,21 @@ bool ClapProcessor::process(const AudioBlock &p_block) {
 	const uint32_t n = p_block.frames;
 	const size_t bytes = sizeof(float) * n;
 
+	// Asleep, and nothing to wake it: silence, without calling the plugin (see SLEEP in the header).
+	if (sleeping.load(std::memory_order_relaxed)) {
+		if (!should_wake(p_block, n)) {
+			for (uint32_t c = 0; c < p_block.channels; c++) {
+				std::memset(p_block.outputs[c], 0, bytes);
+			}
+			for (uint32_t k = 0; k < p_block.extra_output_count * 2; k++) {
+				std::memset(p_block.extra_outputs[k], 0, bytes);
+			}
+			steady_time += n;
+			return true;
+		}
+		sleeping.store(false, std::memory_order_relaxed);
+	}
+
 	// Inputs are copied rather than aliased: a plugin may process in place (write its output
 	// into its input buffer), which would corrupt EffectRuntime's buffers if we lent them out.
 	//
@@ -375,11 +390,28 @@ bool ClapProcessor::process(const AudioBlock &p_block) {
 
 	const clap_process_status status = plugin->process(plugin, &proc);
 	steady_time += n;
-	// The other statuses (CONTINUE, CONTINUE_IF_NOT_QUIET, TAIL, SLEEP) tell a DAW when it may
-	// stop calling a silent plugin to save CPU. We always keep calling, which the spec allows.
 	if (status == CLAP_PROCESS_ERROR) {
 		return false;
 	}
+	// SLEEP: nothing to do until something arrives. CONTINUE_IF_NOT_QUIET: the same, once the
+	// output is silent. (CONTINUE and TAIL: keep calling.)
+	bool sleep = status == CLAP_PROCESS_SLEEP;
+	if (status == CLAP_PROCESS_CONTINUE_IF_NOT_QUIET && main_output >= 0) {
+		sleep = true;
+		const Port &quiet = outputs[main_output];
+		const uint64_t constant = output_buffers[main_output].constant_mask;
+		for (uint32_t c = 0; sleep && c < quiet.channels; c++) {
+			// A channel flagged constant may be unwritten past its first sample.
+			const uint32_t check = (c < 64 && (constant & (uint64_t(1) << c))) ? 1 : n;
+			for (uint32_t f = 0; f < check; f++) {
+				if (quiet.ptrs[c][f] != 0.0f) {
+					sleep = false;
+					break;
+				}
+			}
+		}
+	}
+	sleeping.store(sleep, std::memory_order_relaxed);
 
 	// An instrument's extra outputs: the non-main output ports, in their order, each to the next
 	// extra output (mono to both sides); one the plugin does not have stays silent.
@@ -735,8 +767,28 @@ void ClapProcessor::host_request_restart(const clap_host_t *p_host) {
 	from_mut(p_host)->restart_requested.store(true, std::memory_order_release);
 }
 
-void ClapProcessor::host_request_process(const clap_host_t *) {
-	// Every bus with a loaded plugin is processed continuously; nothing to wake.
+// ANY THREAD. The plugin wants process() again, while it sleeps (see SLEEP in the header).
+void ClapProcessor::host_request_process(const clap_host_t *p_host) {
+	static_cast<ClapProcessor *>(p_host->host_data)->wake_requested.store(true, std::memory_order_release);
+}
+
+// AUDIO THREAD. Whether a sleeping plugin must run this block: an event for it, its own request,
+// or anything but silence at its inputs (an effect's bus, a sidechain).
+bool ClapProcessor::should_wake(const AudioBlock &p_block, uint32_t p_frames) {
+	if (p_block.param_event_count > 0 || wake_requested.exchange(false, std::memory_order_acq_rel)) {
+		return true;
+	}
+	auto loud = [&](const float *const *p_ptrs, uint32_t p_channels) {
+		for (uint32_t c = 0; p_ptrs && c < p_channels; c++) {
+			for (uint32_t f = 0; f < p_frames; f++) {
+				if (p_ptrs[c][f] != 0.0f) {
+					return true;
+				}
+			}
+		}
+		return false;
+	};
+	return loud(p_block.inputs, p_block.channels) || loud(p_block.aux_inputs, p_block.aux_channels);
 }
 
 void ClapProcessor::host_request_callback(const clap_host_t *p_host) {

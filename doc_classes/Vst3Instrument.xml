@@ -97,6 +97,12 @@
 				[code]true[/code] once the plugin has loaded.
 			</description>
 		</method>
+		<method name="is_plugin_sleeping">
+			<return type="bool" />
+			<description>
+				Always [code]false[/code]: VST3 has no way for a plugin to say it has nothing to do, so it is called every block. (CLAP instruments can sleep: [method ClapInstrument.is_plugin_sleeping].)
+			</description>
+		</method>
 		<method name="midi_event">
 			<return type="void" />
 			<param index="0" name="time_us" type="int" />

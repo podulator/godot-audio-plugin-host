@@ -9,6 +9,7 @@
  * channel volume (CC 7, 0..127) scales the sum. So a note's start and end show as exact steps in
  * the audio, on the very sample its event names, and the level says how many notes sound and how
  * loud. A choke, or All Sound Off (CC 120), silences notes like a note-off. No audio input.
+ * With no note sounding it returns CLAP_PROCESS_SLEEP, so the host may stop calling it.
  * One parameter, Master (id 1, 0..1, default 1), scales everything; it is the plugin's state too
  * (a little-endian double), so a saved scene brings it back.
  *
@@ -258,7 +259,9 @@ static clap_process_status p_process(const clap_plugin_t *p, const clap_process_
 	while (next < count) { /* any beyond the block's end (a host should not send them) */
 		handle_event(s, proc->in_events->get(proc->in_events, next++));
 	}
-	return CLAP_PROCESS_CONTINUE;
+	/* With no note sounding there is nothing to do until an event comes: the host may stop
+	 * calling (the transport plugin keeps going: its output is the position). */
+	return (!s->transport_only && s->note_count == 0) ? CLAP_PROCESS_SLEEP : CLAP_PROCESS_CONTINUE;
 }
 
 /* --- extensions: one stereo output, one note input --------------------------------------------- */

@@ -183,6 +183,10 @@ Ref<AudioStreamPlayback> Vst3Instrument::_instantiate_playback() const {
 	return playback;
 }
 
+bool Vst3Instrument::is_plugin_sleeping() {
+	return hosted.is_sleeping();
+}
+
 int64_t Vst3Instrument::get_frames_processed() {
 	return int64_t(hosted.frames_processed());
 }
@@ -377,6 +381,7 @@ void Vst3Instrument::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_parameter", "id"), &Vst3Instrument::get_parameter);
 	ClassDB::bind_method(D_METHOD("get_plugin_info"), &Vst3Instrument::get_plugin_info);
 	ClassDB::bind_method(D_METHOD("get_frames_processed"), &Vst3Instrument::get_frames_processed);
+	ClassDB::bind_method(D_METHOD("is_plugin_sleeping"), &Vst3Instrument::is_plugin_sleeping);
 	ClassDB::bind_method(D_METHOD("midi_event", "time_us", "source", "kind", "channel", "index", "value", "note_id"), &Vst3Instrument::midi_event);
 	ClassDB::bind_method(D_METHOD("midi_stop", "time_us", "source", "mode"), &Vst3Instrument::midi_stop);
 	ClassDB::bind_method(D_METHOD("midi_transport", "time_us", "source", "playing", "bpm", "song_beat", "loop_start", "loop_end"), &Vst3Instrument::midi_transport);

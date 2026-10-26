@@ -152,6 +152,8 @@ public:
 
 	size_t instance_count() { return registry.size(); }
 	uint64_t frames_processed();
+	// MAIN THREAD. Whether the running plugin (the first live instance) sleeps right now.
+	bool is_sleeping();
 
 private:
 	std::unique_ptr<PluginProcessor> create(std::string &r_error);

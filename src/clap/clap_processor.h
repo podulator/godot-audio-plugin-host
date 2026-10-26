@@ -64,6 +64,7 @@ public:
 
 	bool process(const AudioBlock &p_block) override;
 	std::vector<std::string> output_names() const override;
+	bool is_sleeping() const override { return sleeping.load(std::memory_order_relaxed); }
 	void detach_from_audio() override;
 	void idle() override;
 	bool pop_output_param(ParamEvent &r_event) override;
@@ -188,6 +189,15 @@ private:
 	// What we actually pass to the plugin: one clap_audio_buffer per port, pointing into Port.
 	std::vector<clap_audio_buffer_t> input_buffers;
 	std::vector<clap_audio_buffer_t> output_buffers;
+
+	// SLEEP. A plugin returning CLAP_PROCESS_SLEEP (a synth with no notes sounding), or
+	// CLAP_PROCESS_CONTINUE_IF_NOT_QUIET with a silent output, is not called again until a block
+	// brings an event, its input is not silent, or it asks (request_process, from any thread):
+	// process() writes silence instead, and steady_time moves on, as CLAP allows. `sleeping` is
+	// written on the audio thread, read anywhere.
+	std::atomic<bool> sleeping{ false };
+	std::atomic<bool> wake_requested{ false };
+	bool should_wake(const AudioBlock &p_block, uint32_t p_frames);
 
 	// The events of one block in CLAP's own structs, rebuilt every block from
 	// AudioBlock::param_events: parameter changes, and for an instrument notes and MIDI. Every CLAP

@@ -100,6 +100,12 @@
 				[code]true[/code] once the plugin has loaded.
 			</description>
 		</method>
+		<method name="is_plugin_sleeping">
+			<return type="bool" />
+			<description>
+				[code]true[/code] while the plugin sleeps: it said it has nothing to do (no notes sounding, say), so it is not called, and costs no CPU, until something arrives for it (a note, a parameter change, the transport) or it asks to run.
+			</description>
+		</method>
 		<method name="midi_event">
 			<return type="void" />
 			<param index="0" name="time_us" type="int" />

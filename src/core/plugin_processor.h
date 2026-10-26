@@ -192,6 +192,11 @@ public:
 	virtual std::vector<ParamInfo> read_params() const { return {}; }
 	virtual bool take_params_changed() { return false; }
 
+	// ANY THREAD. True while the plugin sleeps: it said it has nothing to do (CLAP's
+	// CLAP_PROCESS_SLEEP), so process() outputs silence without calling it until something
+	// arrives (an event, audio at its input, or its own request).
+	virtual bool is_sleeping() const { return false; }
+
 	// MAIN THREAD. The names of the plugin's audio outputs, the main one first ("Main", "Kick",
 	// "Snare", ...). For instruments with several outputs (AudioBlock::extra_outputs).
 	virtual std::vector<std::string> output_names() const { return {}; }

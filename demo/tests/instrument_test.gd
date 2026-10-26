@@ -33,6 +33,7 @@ func _ready() -> void:
 		await _test_two_channels(path)
 		await _test_two_players(path)
 		await _test_outputs(path, DRUMS_ID, "CLAP")
+		await _test_sleep(path)
 		await _test_transport(path)
 	var vst3_notes := TestUtilScript.own_plugin("gaph_test_vst3_instrument.vst3")
 	var vst3_transport := TestUtilScript.own_plugin("gaph_test_vst3_transport.vst3")
@@ -423,3 +424,34 @@ func _test_outputs(path: String, id: String, format: String) -> void:
 		players[i].queue_free()
 		await get_tree().process_frame
 		AudioServer.remove_bus(AudioServer.get_bus_index("Out_%s_%d" % [format, i]))
+
+
+
+# A CLAP plugin that says it has nothing to do (CLAP_PROCESS_SLEEP: the test instrument with no
+# note sounding) is not called until something arrives. Asleep while idle, awake while its note
+# sounds, which lands on its sample (the grid test shows it to the sample: it runs asleep too),
+# asleep again after; a parameter change wakes it as well.
+func _test_sleep(path: String) -> void:
+	var r := await _rig(path, CLAP_ID, "Inst_Sleep")
+	var inst: ClapInstrument = r.inst
+	var midi: MidiDriver = r.midi
+	midi.set_channel_target(1, inst)
+	midi.play()
+	_check(inst.is_plugin_sleeping(), "idle: the plugin sleeps")
+	midi.note_on(1, 60, 127, 0.5, midi.after(0.25))
+	await get_tree().create_timer(0.25).timeout # into the note
+	_check(not inst.is_plugin_sleeping(), "a note wakes it")
+	var steps := _steps(await _collect(r.cap, 0.6))
+	# Collected from inside the note: it sounds (0.25 from the first frame), then ends in silence.
+	_check(steps.size() == 2 and is_equal_approx(steps[0][1], 0.25) and steps[1][1] == 0.0, "the woken plugin sounds, then ends in silence (%s)" % str(steps))
+	await get_tree().create_timer(0.1).timeout
+	_check(inst.is_plugin_sleeping(), "after the note: asleep again")
+	inst.set_parameter(1, 0.8)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var woke_for_parameter := not inst.is_plugin_sleeping()
+	await get_tree().create_timer(0.1).timeout
+	_check(woke_for_parameter or is_equal_approx(inst.get_parameter(1), 0.8), "a parameter change reaches it while it sleeps (%s)" % inst.get_parameter(1))
+	_check(inst.is_plugin_sleeping(), "and it sleeps again after")
+	inst.set_parameter(1, 1.0)
+	await _unrig(r)

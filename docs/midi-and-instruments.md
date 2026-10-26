@@ -157,8 +157,8 @@ An instrument holds at most the lookahead's worth of events, in the runtime's fi
 - **Saving,** as for effects: `plugin_state` and `param_values`, in that order after the plugin; parameters as inspector sliders.
 - **Several outputs** (drum machines, multi-out samplers): the plugin renders all of them in the same block; `get_output(i)` is a small `AudioStream` (`ClapInstrumentOutput`, `Vst3InstrumentOutput`) that plays output i, in a player of its own, on any bus; `bind_outputs([players])` does it for a list. Output 0 is the main one, the instrument itself; the others are the plugin's other output ports (CLAP) or aux output buses (VST3), in their order, by their names (`get_output_names()`). An output stream holds its instrument, not the other way round, so no reference cycle keeps either.
 - **Mix rate:** the playback runs at the `AudioServer`'s mix rate, so Godot does not resample.
+- **Sleep (CLAP):** a plugin returning `CLAP_PROCESS_SLEEP` (or `CONTINUE_IF_NOT_QUIET` with a silent output) is not called again until a block brings an event for it, its input is not silent, or it asks (`request_process`); the host outputs silence meanwhile, so an idle instrument costs nothing. The same holds for effects. VST3 has no such status.
 - **Not built yet:**
-  - skipping a CLAP plugin that returns `CLAP_PROCESS_SLEEP`, so a silent instrument costs nothing;
   - instruments listed by name (per-plugin classes, as the Add Effect menu has for effects);
   - exact loop jumps for VST3 (splitting the block at a transport snapshot).
 

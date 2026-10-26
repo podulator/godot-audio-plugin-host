@@ -143,6 +143,11 @@ void HostedEffect::detach(EffectRuntime &p_runtime) {
 	}
 }
 
+bool HostedEffect::is_sleeping() {
+	PluginProcessor *p = first_live_processor();
+	return p && p->is_sleeping();
+}
+
 PluginProcessor *HostedEffect::first_live_processor() {
 	PluginProcessor *found = nullptr;
 	registry.for_each([&](EffectRuntime &r) {

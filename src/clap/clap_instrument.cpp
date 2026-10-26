@@ -198,6 +198,10 @@ Ref<AudioStreamPlayback> ClapInstrument::_instantiate_playback() const {
 	return playback;
 }
 
+bool ClapInstrument::is_plugin_sleeping() {
+	return hosted.is_sleeping();
+}
+
 int64_t ClapInstrument::get_frames_processed() {
 	return int64_t(hosted.frames_processed());
 }
@@ -394,6 +398,7 @@ void ClapInstrument::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_parameter", "id"), &ClapInstrument::get_parameter);
 	ClassDB::bind_method(D_METHOD("get_plugin_info"), &ClapInstrument::get_plugin_info);
 	ClassDB::bind_method(D_METHOD("get_frames_processed"), &ClapInstrument::get_frames_processed);
+	ClassDB::bind_method(D_METHOD("is_plugin_sleeping"), &ClapInstrument::is_plugin_sleeping);
 	ClassDB::bind_method(D_METHOD("midi_event", "time_us", "source", "kind", "channel", "index", "value", "note_id"), &ClapInstrument::midi_event);
 	ClassDB::bind_method(D_METHOD("midi_stop", "time_us", "source", "mode"), &ClapInstrument::midi_stop);
 	ClassDB::bind_method(D_METHOD("midi_transport", "time_us", "source", "playing", "bpm", "song_beat", "loop_start", "loop_end"), &ClapInstrument::midi_transport);
