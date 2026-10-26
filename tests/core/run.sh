@@ -10,4 +10,7 @@ for san in address thread; do
 		-o "$out/test_core_$san" -pthread
 	echo "[$san]"
 	"$out/test_core_$san"
+	# The MIDI driver's core: header-only, main-thread code with made-up times.
+	g++ -std=c++17 -O1 -g -Wall -Wextra -fsanitize=$san -I"$root/src" "$root/tests/core/test_midi.cpp" -o "$out/test_midi_$san"
+	"$out/test_midi_$san"
 done
