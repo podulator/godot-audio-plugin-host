@@ -44,21 +44,23 @@ runs everything that can run on this machine, and needs Godot (4.5 or later) on 
 | --- | --- |
 | `tests/core/` | the plain C++ core (queues, timing, sidechains, and the MIDI driver's transport and sequencer, `test_midi.cpp`, with made-up times), under AddressSanitizer and ThreadSanitizer |
 | `tests/clap/`, `tests/vst3/` | each host against real plugins, under AddressSanitizer: loading, parameters, state, sidechain, sample-exact timing |
-| `demo/tests/*.tscn` | headless Godot scenes: both formats on real buses, sidechains, state, timing, the lock, menu classes, plugin folders, and the MIDI driver through a GDScript target (`midi_test`: ranges, the grid to the microsecond, notes, pause and resume, signals, transport) |
+| `demo/tests/*.tscn` | headless Godot scenes: both formats on real buses, sidechains, state, timing, the lock, menu classes, plugin folders, and the MIDI driver through a GDScript target (`midi_test`: ranges, the grid to the microsecond, notes, pause and resume, signals, transport); MIDI driver to instrument to audio, measured in the captured audio for both formats (`instrument_test`: notes to the sample, MIDI 1.0 and VST3 controller paths, pause, two channels, the transport, saving) |
 | `tests/platform/` | the same core checks with only this repository's plugins: what CI runs on every platform |
 | `tests/export/` | a real Linux export (debug and release) loading its plugin, and a macOS app assembled on Linux |
 | `tests/windows/` | plugin windows on Windows: under Wine on Linux (nothing shows on screen), natively on Windows |
 | `tests/macos/` | plugin windows on macOS (macOS only) |
 | `tests/android/` | the platform test (CLAP) in a real Android export on a device or emulator; needs `ANDROID_HOME` with build-tools, a JDK and Godot's Android export templates, and skips without a device (`ANDROID_SERIAL` picks one when several are connected) |
 | `tests/scan_guard/` | a plugin that crashes the editor while it is scanned, and the editor surviving it |
-| editor probes | a real (headless) editor: the Add Effect menu, plugin windows opening on click, the help pages |
+| editor probes | a real (headless) editor: the Add Effect menu, plugin windows opening on click, the instruments' Open Plugin Window button, the help pages |
 
 Our own plugins mean nothing has to be installed. Tests for third-party plugins (Dragonfly Reverb for a real reverb tail and a real plugin window, OneTrick URCHIN for refusing instruments) skip themselves where those are missing.
 
 - `tests/plugins/gaph_test_plugin.c`: a deterministic CLAP effect (out = main x gain + sidechain x mix, sample-accurate events, state), with a GUI on Windows and macOS.
 - `tests/plugins/gaph_test_vst3.cpp`: its VST3 twin (the same Gain and Sidechain Mix, normalised, a sidechain bus, sample-accurate changes, state), with an editor on Windows and macOS.
+- `tests/plugins/gaph_test_instrument.c`: a deterministic CLAP instrument, three plugins in one file: each sounding note adds velocity x 0.25, so every note's start and end is an exact step in the audio (one takes CLAP note events, one MIDI 1.0 only); the third plays back the transport it is told. A saved Master parameter.
+- `tests/plugins/gaph_test_vst3_instrument.cpp`: its VST3 twin, built as two bundles (notes, with a Volume parameter that MIDI controller 7 drives through `IMidiMapping`; transport), one class each, since a class id's text differs on Windows.
 
-Their GUIs size themselves 300 x 200 times the scale the host sends, and can ask the host for a new size, so the GUI tests (`tests/gui/`) check window type, scale, sizing and resize requests through the host's real code.
+The two effects' GUIs (the instruments have none) size themselves 300 x 200 times the scale the host sends, and can ask the host for a new size, so the GUI tests (`tests/gui/`) check window type, scale, sizing and resize requests through the host's real code.
 
 Two tests depend on timing. Run them on an idle machine: a Godot build alongside makes them fail. Scratch files go to `$GAPH_TEST_TMP`, or a folder in the system's temporary directory.
 
@@ -102,8 +104,8 @@ and merge the new entries from `/tmp/docs/doc_classes/` into `doc_classes/`.
 | path | what it is |
 | --- | --- |
 | `src/core/` | plain C++, compiled into both libraries, no Godot: effect runtime, lock-free queue, parameter timing (`block_clock.h`), sidechain channels, run loop, and the plugin windows (X11, Win32, Cocoa: `native_window.h`); the MIDI driver's core, header only (`midi_values.h`, `midi_transport.h`, `midi_sequencer.h`) |
-| `src/godot_common/` | Godot glue both libraries compile in, as functions and helpers rather than shared classes: parameter properties, Add Effect menu classes, plugin folders, export, scan guard, editor window |
-| `src/clap/`, `src/vst3/` | each format's host, Godot classes, editor plugin and entry point |
+| `src/godot_common/` | Godot glue both libraries compile in, as functions and helpers rather than shared classes: parameter properties, Add Effect menu classes, plugin folders, export, scan guard, editor window, and what both instrument classes share (`instrument_common.h`) |
+| `src/clap/`, `src/vst3/` | each format's host, Godot classes (effects, sidechain sends, instruments), editor plugin and entry point |
 | `src/vst3_android/` | the empty `vst3_host` extension for Android |
 | `src/midi/` | the `midi_host` extension: `MidiDriver` and `MidiNote`, on the core's sequencer |
 | `doc_classes/` | the class reference, one XML file per class |
@@ -135,6 +137,8 @@ Verified against the Godot 4.5 source:
 The plugin windows: `src/core/native_window.h` names one window class per platform, all with the same interface (`X11Window`, `Win32Window`, `CocoaWindow`), and `plugin_window_api()` gives what else differs: the window type each format asks for, and whether the host sends the plugin a scale (Linux and Windows: pixels, so yes; macOS: points, so no, as CLAP's `gui.h` requires). On Windows, Godot's own main loop dispatches the messages of every window on its thread, so plugin windows need no loop of their own.
 
 The MIDI driver plans on the main thread and in beats: its schedule holds events at running positions on the transport, and every frame hands what falls within a lookahead (100 ms) to the targets, each with its host time (`host_time_us()`, the clock both extensions read). Pause, a loop or a tempo change withdraws what was handed out but not heard (`midi_stop`) and plans it again, so the schedule never has to be rewritten in microseconds. Notes are tracked by id from the call to their end, and the last heard controller values per channel are sent again on resume. The design, and what was decided why: [midi-and-instruments.md](midi-and-instruments.md).
+
+Instruments (`ClapInstrument`, `Vst3Instrument`) are AudioStreams: each playback runs one plugin instance through the same `EffectRuntime` effects use, with silence as its input. MIDI travels on the parameters' path to the audio thread (a `ParamEvent` of type MIDI), so notes get the same sample-exact placement; each MIDI source keeps one time-to-sample mapping, so events handed over half a second apart keep their spacing to the sample despite the clock's creep. A `midi_stop` reaches the audio thread only as "drop this source's events from time T" (a DROP event); which notes still sound at T, and need a note-off there, is worked out on the main thread, which queued them all (`core/midi_target.h`). Checked in Godot 4.7's source: a playback is created and freed on the main thread, outside the mix, so plugin instances are too. VST3 has no controller events: the plugin's `IMidiMapping` is read into a table when it starts (a main-thread call), and the audio thread turns controllers into the mapped parameters' changes.
 
 ## Known issues in detail
 

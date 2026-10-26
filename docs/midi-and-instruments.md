@@ -6,7 +6,7 @@ Status: phase 1 built (26-27.10.2026): the driver (`midi_host`), CLAP and VST3 i
 
 Play CLAP and VST3 **instruments** in Godot, driven by a **real-time MIDI driver** that scripts talk to directly, in the spirit of GDSiON's `SiONDriver`: notes, controllers and pitch bend sent ad hoc from gameplay code, with tempo, quantising and beat signals, sample-accurate in the audio.
 
-MIDI file playback, external MIDI hardware and VST3 instruments come later, on the same foundations.
+MIDI file playback and external MIDI hardware come later, on the same foundations.
 
 ## What Godot provides (checked in the 4.7 source)
 
@@ -135,32 +135,38 @@ The existing parameter timing does the hard part already: every change carries a
 - Across the extension boundary only microsecond timestamps travel, on a clock both libraries read the same way.
 - **Gaps in the audio** (an Android app in the background, a suspended laptop): `BlockClock` re-anchors when a block arrives more than 200 ms later than it predicts, and events waiting in a runtime are placed again (1.1.1). The driver re-anchors its beat map the same way, or the transport would jump ahead by the gap.
 
-To check before building: an instrument holds at most the lookahead's worth of events, so a fixed-size, sorted structure allocated off the audio thread suffices. What happens when it is full (drop, or refuse at the call) must still be decided.
+An instrument holds at most the lookahead's worth of events, in the runtime's fixed-size waiting list (1024 events, allocated before audio runs). Should it ever be full, an event is delivered at once rather than dropped, as for parameter changes: a note slightly early beats a note never heard.
 
 ## Instruments
 
-`ClapInstrument` is an `AudioStream`; its playback runs the plugin in `_mix`. Most of it is the existing host:
+`ClapInstrument` and `Vst3Instrument` are `AudioStream`s; each playback runs one plugin instance in its `_mix`, through the same `EffectRuntime` effects use, with silence as its input. What both formats share is in `godot_common/instrument_common.h`. Most of it is the existing host:
 
 | reused as is | new |
 | --- | --- |
-| loading, scanning, plugin ids, the scan guard | an `AudioStream` / `AudioStreamPlayback` pair instead of an `AudioEffect` |
-| parameters, `param_values`, `plugin_state` | note and MIDI events into the plugin's input events |
-| plugin windows in the editor | no audio input; the main output port only (version 1) |
-| sample-accurate timestamps, the lock-free queue | the instrument filter inverted: instruments only |
-| Android (CLAP) | notes still sounding when playback stops: all-notes-off, then let the tail out or cut it |
+| loading, plugin ids, parameters, `param_values`, `plugin_state` | an `AudioStream` / `AudioStreamPlayback` pair instead of an `AudioEffect` |
+| sample-accurate timestamps, the lock-free queue | MIDI on the parameters' path (`ParamEvent` types MIDI, DROP, TRANSPORT), with one time-to-sample mapping per MIDI source, so spacing stays exact to the sample |
+| plugin windows (`EditorWindow`) | an **Open Plugin Window** button in the instrument's inspector: an instrument in a player's `stream` property has no click of its own |
+| Android (CLAP) | no audio input; the main output port only |
 
-- **Events into CLAP:** by the plugin's `note-ports` dialects, in this order of preference: CLAP note events (`CLAP_EVENT_NOTE_ON`/`OFF` with the `note_id`, velocity 0..1) plus MIDI for controllers; MIDI 2.0 (`CLAP_EVENT_MIDI2`), at full resolution; MIDI 1.0 (`CLAP_EVENT_MIDI`), converted down.
-- **Several audio outputs** (drum machines and samplers with one output pair per drum): a question for this step, left open until then. A player delivers one signal to one bus, so version 1 plays the main output; more would go to their own buses, like the sidechain sends in reverse.
-- **Silence:** CLAP plugins may return `CLAP_PROCESS_SLEEP`; the playback then skips the plugin until the next event, so a silent instrument costs nothing.
+- **The target** is the instrument resource itself: `midi.set_channel_target(1, $Piano.stream)`.
+- **midi_stop:** the audio thread only learns "drop this source's events from time T". Which notes still sound at T is worked out on the main thread, which queued them all (`core/midi_target.h`), and they get a note-off (RELEASE) or a choke (CUT) at T.
+- **Events into CLAP:** by the plugin's `note-ports` dialects: CLAP note events (with the `note_id`, velocity 0..1) where taken; else MIDI 2.0 (`CLAP_EVENT_MIDI2`, full resolution); else MIDI 1.0 (`CLAP_EVENT_MIDI`), converted down. Controllers, pitch bend, pressure and program change always go as MIDI.
+- **Events into VST3:** notes and poly pressure as VST3 events on the first event input bus. VST3 has no controller events: the plugin's `IMidiMapping` is read into a table when it starts (a main-thread call), and controllers, channel pressure, pitch bend and program change become changes of the parameters it maps them to.
+- **The transport** (`midi_transport`) reaches CLAP plugins as `proc.transport` plus a transport event on the very sample a snapshot lands, and VST3 plugins in the `ProcessContext`, once per block: a loop jump inside a block reaches a VST3 plugin at the next block's start, up to 512 samples late.
+- **Saving,** as for effects: `plugin_state` and `param_values`, in that order after the plugin; parameters as inspector sliders.
 - **Mix rate:** the playback runs at the `AudioServer`'s mix rate, so Godot does not resample.
-- **The editor:** an instrument is chosen in the `stream` property of a player rather than from a bus's Add Effect menu. Per-plugin entries (`Clap_<Name>` instrument classes), as for effects, would list them by name there.
-- **VST3 later:** notes go through an `IEventList` on an event input bus; controllers and pitch bend have no events of their own and go through `IMidiMapping` to parameter changes, which makes VST3 the bigger half.
+- **Not built yet:**
+  - more than one playback per instrument (every playback gets every note);
+  - several audio outputs (drum machines and samplers with one output pair per drum): a player delivers one signal to one bus, so the main output plays; more would go to their own buses, like the sidechain sends in reverse;
+  - skipping a CLAP plugin that returns `CLAP_PROCESS_SLEEP`, so a silent instrument costs nothing;
+  - instruments listed by name (per-plugin classes, as the Add Effect menu has for effects);
+  - exact loop jumps for VST3 (splitting the block at a transport snapshot).
 
 ## Phases
 
-1. **Driver + CLAP instruments** (the first thing that makes sound): `MidiDriver` with tempo, `at` and its helpers, length, beat signals, per-channel routing, note tracking and the whole transport (stop, pause and resume with chasing, seek, loop); `ClapInstrument` with notes and raw MIDI. Test: our own test instrument (a sine per note, deterministic) in the platform test, checking that notes start and stop on the exact sample, quantised to the grid, on Linux, Windows, macOS and Android.
+1. **Driver + CLAP instruments: built.** `MidiDriver` with tempo, `at` and its helpers, length, the transport (stop, pause and resume with chasing, seek, loop, panic), its signals, note tracking and per-channel routing; `ClapInstrument` with notes, MIDI and the transport. Tested with deterministic test instruments (each note adds a fixed level, so its start and end are exact steps in the captured audio): notes to the sample on the grid (11025 and 22050 samples at 44.1 kHz), the MIDI 1.0 path, pause, two channels, loop jumps. Run on Linux; CI and the other platforms have not run it yet. Not built: `chase_notes` (restarting notes that span a resume point).
 2. **Patterns and files:** `sequence_on(pattern)` on the audio thread, `MidiClip` resources and an importer for Standard MIDI Files (`.mid`, MIDI 1.0) and MIDI Clip Files (MIDI 2.0), played through the same driver. A pattern entered by hand has no format to state its version: its values decide (anything beyond MIDI 1.0's ranges makes it a MIDI 2.0 pattern).
-3. **VST3 instruments:** `Vst3Instrument`, events and `IMidiMapping`.
+3. **VST3 instruments: built.** `Vst3Instrument`, VST3 note events and `IMidiMapping`, the transport per block; and saving for both instrument types. Tested as for CLAP, plus a controller through `IMidiMapping`, and a saved instrument loaded fresh sounding as saved.
 4. **External MIDI:** `MidiOutput` (to hardware and other programs) and a timestamped `MidiInput`, per platform: ALSA, CoreMIDI, Windows MIDI and Android MIDI. Only if live playing or external gear matter.
 
 ## Note expressions (later)

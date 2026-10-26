@@ -1,11 +1,11 @@
 <h1><img src="https://raw.githubusercontent.com/podulator/godot-audio-plugin-host/v1.0.0/docs/images/gaph-fla-512.png" alt="Godot Audio Plugin Host icon" width="128" align="absmiddle">&nbsp;Godot Audio Plugin Host</h1>
 
-Run **CLAP** and **VST® 3** audio effect plugins on Godot's audio buses, in the editor and in exported games, and drive them from a real-time **MIDI** driver. Three GDExtensions:
+Run **CLAP** and **VST® 3** audio effect plugins on Godot's audio buses, and **instrument** plugins as audio streams, in the editor and in exported games, played from a real-time **MIDI** driver. Three GDExtensions:
 
 | addon | classes |
 | --- | --- |
-| `addons/clap_host/` | `ClapPluginEffect`, `ClapSidechainSend` |
-| `addons/vst3_host/` | `Vst3PluginEffect`, `Vst3SidechainSend` |
+| `addons/clap_host/` | `ClapPluginEffect`, `ClapSidechainSend`, `ClapInstrument` |
+| `addons/vst3_host/` | `Vst3PluginEffect`, `Vst3SidechainSend`, `Vst3Instrument` |
 | `addons/midi_host/` | `MidiDriver`, `MidiNote` |
 
 Each addon works on its own, and they can be used together in one project.
@@ -17,6 +17,7 @@ Each addon works on its own, and they can be used together in one project.
 - The plugin's own interface opens in a window, in the editor.
 - Plugins can ship with an exported game.
 - A MIDI driver for scripts: notes, controllers and pitch bend, ad hoc or on a beat grid, with a transport (pause, resume, seek, loop), landing on the exact sample.
+- Instrument plugins (synths, samplers) play through any `AudioStreamPlayer`, 2D and 3D included, follow the driver's tempo and song position, and are saved with the scene.
 
 ## Requirements
 
@@ -87,7 +88,7 @@ Every class, property, method and signal is described in the editor's help: pres
 - `plugin_id` is the VST3 class id as 32 hex digits; empty means the first effect in the bundle.
 - Parameter values are always **0..1** (VST3 exchanges them normalised). `get_parameter_text()` shows the real value with its unit.
 
-Instruments are left out intentionally: this host runs effects.
+The Add Effect menu lists effects only: instruments play as [audio streams](#instruments), not on a bus.
 
 ## What is saved with a scene
 
@@ -120,7 +121,7 @@ Godot mixes buses from the last one up. If the source bus comes **after** the pl
 var midi := MidiDriver.create(1)              # MIDI 1.0 value ranges; create(2) for MIDI 2.0
 add_child(midi)
 midi.bpm = 120
-midi.set_channel_target(1, target)            # channels 1-16, as on MIDI gear
+midi.set_channel_target(1, $Piano.stream)     # channels 1-16, as on MIDI gear
 midi.play()
 
 var n := midi.note_on(1, 60, 100)             # now, held until n.off()
@@ -140,8 +141,28 @@ midi.beat.connect(_on_beat)
 - **Values** are in the ranges of the driver's MIDI version: 0-127 for velocity and controllers and -8192 to 8191 for pitch bend in MIDI 1.0; 16-bit velocity and 32-bit controllers, pressures and pitch bend in MIDI 2.0. Out-of-range values are refused with an error.
 - **Notes:** `note_on` returns a `MidiNote`, which ends exactly that note (`off()`), and says whether it is still sounding. Velocity 0 is a note-off, as in MIDI.
 - **The transport:** `play()`, `pause()` (the position stays, sounding notes end, planned events wait), `play()` again to resume (controllers are sent again first), `stop()`, `seek()`, `set_loop()`, `panic()`. Signals: `beat`, `started`, `paused`, `resumed`, `stopped`, `position_changed`, `tempo_changed`, on the main thread.
-- **Targets** are objects with `midi_event()` and `midi_stop()` methods, and optionally `midi_transport()`: a GDScript synth can be one. The class reference (F1, `MidiDriver`) describes them.
+- **Targets** are [instruments](#instruments), or any object with `midi_event()` and `midi_stop()` methods, and optionally `midi_transport()`: a GDScript synth can be one. The class reference (F1, `MidiDriver`) describes them.
 - The driver keeps running while the scene tree is paused; `pause()` pauses the music. Several drivers can run side by side, each with its own transport.
+
+## Instruments
+
+`ClapInstrument` and `Vst3Instrument` play an instrument plugin as an audio stream: put one in a player's `stream`, play the player, and bind the instrument to a `MidiDriver` channel.
+
+```gdscript
+var synth := ClapInstrument.new()             # or Vst3Instrument, with a .vst3 bundle
+synth.plugin_path = "Surge XT.clap"
+$Player.stream = synth                        # AudioStreamPlayer, 2D or 3D, on any bus
+$Player.play()
+midi.set_channel_target(1, synth)
+midi.note_on(1, 60, 100, 1.0)
+```
+
+- **Notes** land on the exact sample the driver planned them for. One instrument may listen on several channels.
+- **CLAP** gets notes as CLAP note events where the plugin takes them, otherwise as MIDI 2.0 or MIDI 1.0; controllers, pitch bend, pressure and program changes go as MIDI.
+- **VST3** gets notes as VST3 note events. VST3 has no controller events: controllers, pitch bend, channel pressure and program changes reach the parameters the plugin assigns to them (its MIDI mapping), and do nothing where it assigns none.
+- **The transport:** the plugin follows the driver's tempo and song position, for tempo-synced arpeggiators, LFOs and delays. CLAP gets a loop jump on its sample; VST3 gets the transport once per audio block, so a jump reaches it up to 512 samples later.
+- **Saved with the scene,** as for effects: the plugin's own state and the parameters set by hand. The parameters are sliders in the inspector.
+- **The plugin's window:** the **Open Plugin Window** button at the top of the instrument's inspector, or `open_editor()` from a script (editor only).
 
 ## Where plugins are found
 
@@ -195,7 +216,7 @@ Scenes need no changes: an effect that uses `la2a.clap` loads `libla2a.so` in th
 
 ## Plugin windows
 
-Clicking a plugin effect in the editor opens the plugin's own interface, in a window of the platform's own kind. The plugin is sized to the editor's display scale (Editor Settings > Interface > Editor > Display Scale), so it matches the editor's text:
+Clicking a plugin effect in the editor, or an instrument's **Open Plugin Window** button, opens the plugin's own interface, in a window of the platform's own kind. The plugin is sized to the editor's display scale (Editor Settings > Interface > Editor > Display Scale), so it matches the editor's text:
 
 | platform | the window | scale |
 | --- | --- | --- |
@@ -225,7 +246,8 @@ xattr -dr com.apple.quarantine addons/clap_host addons/vst3_host
 
 ## Limitations
 
-- **Effects only.** No instruments yet, and no offline rendering.
+- **No offline rendering.**
+- **One playback per instrument.** Keep the player's `max_polyphony` at 1: every playback of an instrument gets every note.
 - **No MIDI hardware yet.** [MIDI](#midi) comes from scripts; MIDI input from and output to devices, and MIDI files, are not there yet.
 - **Stereo pairs.** Godot runs one instance of an effect per stereo channel pair, so on a 5.1 or 7.1 bus there are three or four plugin instances, kept in step by the host.
 - **Latency.** Parameter changes are heard one audio block (about 11.6 ms at 44.1 kHz) after they are made, evenly spaced. Plugins that report their own latency are not compensated for.
