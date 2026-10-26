@@ -130,7 +130,7 @@ midi.note_on(10, 38, 127, 0, midi.next(4.0))  # on the next bar (4/4)
 midi.control_change(1, 1, 64, midi.at_beat(16.0))
 midi.pitch_bend(1, 2048)                      # -8192..8191 in MIDI 1.0
 
-midi.pause()                                  # notes end, tails ring out; resume() picks up the beat
+midi.pause()                                  # notes end, tails ring out; play() resumes on the beat
 midi.seek(32.0)
 midi.set_loop(16.0, 32.0)
 midi.beat.connect(_on_beat)
