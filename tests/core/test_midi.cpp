@@ -36,6 +36,15 @@ struct Recorder : Sink {
 	void send(uint64_t p_target, int64_t p_time_us, const Event &p_event) override { sent.push_back({ p_target, p_time_us, p_event }); }
 	void stop(uint64_t p_target, int64_t p_time_us, StopMode p_mode) override { stops.push_back({ p_target, p_time_us, p_mode }); }
 	void beat(int64_t p_running, double p_song) override { beats.push_back({ p_running, p_song }); }
+	std::vector<std::pair<double, double>> jumps;
+	void looped(double p_running, double p_song) override { jumps.push_back({ p_running, p_song }); }
+	struct Snapshot {
+		uint64_t target;
+		int64_t time_us;
+		TransportInfo info;
+	};
+	std::vector<Snapshot> transports;
+	void transport(uint64_t p_target, int64_t p_time_us, const TransportInfo &p_info) override { transports.push_back({ p_target, p_time_us, p_info }); }
 	std::vector<Sent> of(Kind p_kind) const {
 		std::vector<Sent> out;
 		for (const Sent &s : sent) {
@@ -212,6 +221,9 @@ static void test_loop() {
 	if (rec.beats.size() == 10) {
 		CHECK(rec.beats[7].second == 7.0 && rec.beats[8].second == 4.0 && rec.beats[9].second == 5.0);
 	}
+	// One loop jump so far: at running beat 8, back to song beat 4. The next is at 12.
+	CHECK(rec.jumps.size() == 1 && rec.jumps[0].first == 8.0 && rec.jumps[0].second == 4.0);
+	CHECK(std::abs(tr.next_loop_jump_after(9.0) - 12.0) < 1e-9 && std::abs(tr.next_loop_jump_after(12.0) - 16.0) < 1e-9);
 }
 
 // The bytes and words plugins receive, as the MIDI 1.0 and 2.0 specifications define them.
@@ -236,6 +248,33 @@ static void test_wire_encoding() {
 	CHECK(w[0] == 0x40B14A00u && w[1] == 0x80000000u);
 }
 
+// What targets hear of the transport: a snapshot at play, each loop jump ahead of time with its
+// exact time, pause and tempo changes, and the state at once for a target bound later.
+static void test_transport_to_targets() {
+	Recorder rec;
+	Sequencer seq(rec);
+	seq.set_channel_target(1, PIANO, T0);
+	CHECK(rec.transports.size() == 1 && !rec.transports[0].info.playing); // told at once
+	seq.set_loop(4.0, 8.0, T0);
+	seq.play(T0);
+	run(seq, T0, T0 + 8 * BEAT - 50000); // 50 ms before the loop's end: within the lookahead
+	const Recorder::Snapshot *jump = nullptr;
+	for (const auto &t : rec.transports) {
+		if (t.time_us == T0 + 8 * BEAT) {
+			jump = &t;
+		}
+	}
+	CHECK(jump && jump->info.playing && jump->info.song_beat == 4.0 && jump->info.looping);
+	const size_t before = rec.transports.size();
+	seq.pause(T0 + 8 * BEAT + 100000);
+	CHECK(rec.transports.size() == before + 1 && !rec.transports.back().info.playing);
+	CHECK(std::abs(rec.transports.back().info.song_beat - 4.2) < 1e-9); // 0.2 beats after folding back
+	seq.set_bpm(90, T0 + 9 * BEAT);
+	CHECK(rec.transports.back().info.bpm == 90);
+	seq.set_channel_target(2, DRUMS, T0 + 9 * BEAT);
+	CHECK(rec.transports.back().target == DRUMS && rec.transports.back().info.bpm == 90);
+}
+
 int main() {
 	test_values();
 	test_wire_encoding();
@@ -245,6 +284,7 @@ int main() {
 	test_tempo_change();
 	test_routing();
 	test_loop();
+	test_transport_to_targets();
 	std::printf(failures ? "%d MIDI FAILURES\n" : "all MIDI core tests passed\n", failures);
 	return failures ? 1 : 0;
 }

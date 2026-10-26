@@ -69,7 +69,11 @@ void MidiDriver::set_midi_version(int p_version) {
 
 void MidiDriver::set_bpm(double p_bpm) {
 	ERR_FAIL_COND_MSG(!(p_bpm > 0), "MidiDriver: bpm must be above 0.");
+	if (p_bpm == seq.transport().get_bpm()) {
+		return;
+	}
 	seq.set_bpm(p_bpm, get_time_us());
+	emit_signal("tempo_changed", p_bpm);
 }
 double MidiDriver::get_bpm() const { return seq.transport().get_bpm(); }
 
@@ -173,11 +177,42 @@ void MidiDriver::all_notes_off(double p_at) {
 
 // --- The transport -------------------------------------------------------------------------------
 
-void MidiDriver::play() { seq.play(get_time_us()); }
-void MidiDriver::pause() { seq.pause(get_time_us()); }
-void MidiDriver::stop() { seq.stop(get_time_us()); }
-void MidiDriver::panic() { seq.panic(get_time_us()); }
-void MidiDriver::seek(double p_song_beat) { seq.seek(p_song_beat, get_time_us()); }
+// Each transport call emits its signal after the change, so a handler sees the new state.
+void MidiDriver::play() {
+	if (seq.transport().is_playing()) {
+		return;
+	}
+	const bool resuming = seq.is_paused();
+	seq.play(get_time_us());
+	if (resuming) {
+		emit_signal("resumed", get_position());
+	} else {
+		emit_signal("started");
+	}
+}
+
+void MidiDriver::pause() {
+	if (!seq.transport().is_playing()) {
+		return;
+	}
+	seq.pause(get_time_us());
+	emit_signal("paused", get_position());
+}
+
+void MidiDriver::stop() {
+	seq.stop(get_time_us());
+	emit_signal("stopped");
+}
+
+void MidiDriver::panic() {
+	seq.panic(get_time_us());
+	emit_signal("stopped");
+}
+
+void MidiDriver::seek(double p_song_beat) {
+	seq.seek(p_song_beat, get_time_us());
+	emit_signal("position_changed", p_song_beat);
+}
 void MidiDriver::set_loop(double p_start, double p_end) {
 	ERR_FAIL_COND_MSG(!(p_end > p_start), "MidiDriver: a loop must end after it starts (clear_loop() turns looping off).");
 	seq.set_loop(p_start, p_end, get_time_us());
@@ -202,7 +237,7 @@ void MidiDriver::set_channel_target(int p_channel, Object *p_target) {
 	}
 	ERR_FAIL_COND_MSG(p_target && !p_target->has_method("midi_event"),
 			"MidiDriver: a target needs midi_event(time_us, source, kind, channel, index, value, note_id) and midi_stop(time_us, source, mode).");
-	seq.set_channel_target(p_channel, p_target ? uint64_t(p_target->get_instance_id()) : 0);
+	seq.set_channel_target(p_channel, p_target ? uint64_t(p_target->get_instance_id()) : 0, get_time_us());
 }
 
 Object *MidiDriver::get_channel_target(int p_channel) const {
@@ -231,6 +266,21 @@ void MidiDriver::stop(uint64_t p_target, int64_t p_time_us, gaph::midi::StopMode
 
 void MidiDriver::beat(int64_t p_running_beat, double p_song_beat) {
 	emit_signal("beat", p_running_beat, p_song_beat);
+}
+
+// Optional for targets: one without midi_transport (a GDScript synth with no tempo-synced parts,
+// say) is simply not told. loop_end <= loop_start means no loop.
+void MidiDriver::transport(uint64_t p_target, int64_t p_time_us, const gaph::midi::TransportInfo &p_info) {
+	Object *t = ObjectDB::get_instance(ObjectID(p_target));
+	if (!t || !t->has_method("midi_transport")) {
+		return;
+	}
+	t->call("midi_transport", p_time_us, int64_t(get_instance_id()), p_info.playing, p_info.bpm, p_info.song_beat,
+			p_info.looping ? p_info.loop_start : 0.0, p_info.looping ? p_info.loop_end : 0.0);
+}
+
+void MidiDriver::looped(double, double p_song_beat) {
+	emit_signal("position_changed", p_song_beat);
 }
 
 void MidiDriver::_notification(int p_what) {
@@ -295,6 +345,12 @@ void MidiDriver::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("at_beat", "song_beat"), &MidiDriver::at_beat);
 
 	ADD_SIGNAL(MethodInfo("beat", PropertyInfo(Variant::INT, "running_beat"), PropertyInfo(Variant::FLOAT, "song_beat")));
+	ADD_SIGNAL(MethodInfo("started"));
+	ADD_SIGNAL(MethodInfo("paused", PropertyInfo(Variant::FLOAT, "song_beat")));
+	ADD_SIGNAL(MethodInfo("resumed", PropertyInfo(Variant::FLOAT, "song_beat")));
+	ADD_SIGNAL(MethodInfo("stopped"));
+	ADD_SIGNAL(MethodInfo("position_changed", PropertyInfo(Variant::FLOAT, "song_beat")));
+	ADD_SIGNAL(MethodInfo("tempo_changed", PropertyInfo(Variant::FLOAT, "bpm")));
 
 	BIND_ENUM_CONSTANT(EVENT_NOTE_ON);
 	BIND_ENUM_CONSTANT(EVENT_NOTE_OFF);

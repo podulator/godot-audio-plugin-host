@@ -33,14 +33,30 @@ enum class StopMode : uint8_t {
 	CUT, // that, and silence at once (panic)
 };
 
+// The transport as a target sees it, from a moment on: whether it plays, at what tempo, the song
+// position at that moment, and the loop. In between, the target works the position out itself
+// (song_beat + elapsed time x bpm / 60), so a snapshot comes only when something changes: play,
+// pause, stop, seek, tempo or loop, and each loop jump (sent ahead, like events).
+struct TransportInfo {
+	bool playing = false;
+	double bpm = 120.0;
+	double song_beat = 0.0;
+	bool looping = false;
+	double loop_start = 0.0, loop_end = 0.0;
+};
+
 // Where the sequencer's output goes. The Godot side implements it: a target is an object id, and
-// send/stop become calls to the target's midi_event and midi_stop.
+// send/stop/transport become calls to the target's midi_event, midi_stop and midi_transport.
 struct Sink {
 	virtual ~Sink() = default;
 	virtual void send(uint64_t p_target, int64_t p_time_us, const Event &p_event) = 0;
 	virtual void stop(uint64_t p_target, int64_t p_time_us, StopMode p_mode) = 0;
 	// A running beat was crossed; p_song_beat is the song position there (loops fold it back).
 	virtual void beat(int64_t p_running_beat, double p_song_beat) = 0;
+	// The song passed the loop's end at running position p_running and went back to p_song_beat.
+	virtual void looped(double p_running, double p_song_beat) = 0;
+	// The transport from p_time_us on, for one target.
+	virtual void transport(uint64_t p_target, int64_t p_time_us, const TransportInfo &p_info) = 0;
 };
 
 // A note's life, as the driver knows it.
@@ -64,9 +80,16 @@ public:
 	int64_t get_lookahead_us() const { return lookahead_us; }
 
 	// Which target hears a channel (1-16); 0 for none. Notes keep the target they started with.
-	void set_channel_target(int p_channel, uint64_t p_target) {
-		if (p_channel >= 1 && p_channel <= 16) {
-			channel_target[p_channel - 1] = p_target;
+	// A target new to this driver is told the transport's state straight away (p_now_us).
+	void set_channel_target(int p_channel, uint64_t p_target, int64_t p_now_us = 0) {
+		if (p_channel < 1 || p_channel > 16) {
+			return;
+		}
+		const bool known = p_target == 0 || std::find(std::begin(channel_target), std::end(channel_target), p_target) != std::end(channel_target) ||
+				std::find(targets_used.begin(), targets_used.end(), p_target) != targets_used.end();
+		channel_target[p_channel - 1] = p_target;
+		if (!known) {
+			sink.transport(p_target, p_now_us, info_at(clock.running_at(p_now_us)));
 		}
 	}
 	uint64_t get_channel_target(int p_channel) const {
@@ -180,6 +203,8 @@ public:
 		}
 		clock.play(p_now_us);
 		last_beat = int64_t(std::ceil(clock.running_at(p_now_us))) - 1;
+		last_running = clock.running_at(p_now_us);
+		announce(p_now_us);
 		tick(p_now_us);
 	}
 
@@ -192,6 +217,7 @@ public:
 		end_sounding_notes();
 		clock.pause(p_now_us);
 		paused = true;
+		announce(p_now_us);
 	}
 
 	// Back to the start: every note ends, and the plan is dropped.
@@ -206,7 +232,11 @@ public:
 		take_back(p_now_us, StopMode::RELEASE, false);
 		end_all_notes();
 		clock.seek(p_song, p_now_us);
+		last_running = clock.running_at(p_now_us);
+		announce(p_now_us);
 	}
+
+	bool is_paused() const { return paused; }
 
 	// A new tempo from now. Events already handed out were timed for the old one: they are
 	// withdrawn (sounding notes go on) and handed out again with new times.
@@ -215,12 +245,24 @@ public:
 			take_back(p_now_us, StopMode::WITHDRAW, true);
 		}
 		clock.set_bpm(p_bpm, p_now_us);
+		announce(p_now_us);
 		if (clock.is_playing()) {
 			tick(p_now_us);
 		}
 	}
 
-	void set_loop(double p_start, double p_end, int64_t p_now_us) { clock.set_loop(p_start, p_end, p_now_us); }
+	// A loop changes what is ahead: loop jumps already sent are taken back with everything else not
+	// heard yet (sounding notes go on), and sent again for the new loop.
+	void set_loop(double p_start, double p_end, int64_t p_now_us) {
+		if (clock.is_playing()) {
+			take_back(p_now_us, StopMode::WITHDRAW, true);
+		}
+		clock.set_loop(p_start, p_end, p_now_us);
+		announce(p_now_us);
+		if (clock.is_playing()) {
+			tick(p_now_us);
+		}
+	}
 
 	// MAIN THREAD, every frame: hand out what falls within the lookahead, note what has been
 	// heard, and report the beats crossed.
@@ -234,11 +276,29 @@ public:
 				schedule.erase(schedule.begin());
 				dispatch(e, std::max(p_now_us, clock.time_of(r)), r);
 			}
-			const int64_t beat_now = int64_t(std::floor(clock.running_at(p_now_us)));
+			const double running_now = clock.running_at(p_now_us);
+			const int64_t beat_now = int64_t(std::floor(running_now));
 			while (last_beat < beat_now) {
 				last_beat++;
 				sink.beat(last_beat, clock.song_at(double(last_beat)));
 			}
+			// Loop jumps within the lookahead, sent ahead like events, so a target folds its song
+			// position back on the exact sample.
+			for (double jump = clock.next_loop_jump_after(jumps_sent_upto); !std::isnan(jump) && jump <= horizon;
+					jump = clock.next_loop_jump_after(jump)) {
+				TransportInfo info = info_at(jump);
+				info.song_beat = clock.get_loop_start();
+				for (uint64_t t : all_targets()) {
+					sink.transport(t, clock.time_of(jump), info);
+				}
+				jumps_sent_upto = jump;
+			}
+			// Loop jumps since the last tick (one, or several after a long frame).
+			for (double jump = clock.next_loop_jump_after(last_running); !std::isnan(jump) && jump <= running_now;
+					jump = clock.next_loop_jump_after(jump)) {
+				sink.looped(jump, clock.get_loop_start());
+			}
+			last_running = running_now;
 		}
 		while (!free_schedule.empty() && free_schedule.begin()->first.first <= p_now_us + lookahead_us) {
 			const int64_t t = free_schedule.begin()->first.first;
@@ -294,6 +354,40 @@ private:
 	std::vector<uint64_t> targets_used; // every target ever sent to: a stop goes to all of them
 	bool paused = false;
 	int64_t last_beat = -1;
+	double last_running = 0; // the running position at the last tick, for spotting loop jumps
+	double jumps_sent_upto = 0; // loop jumps up to this running position have gone to the targets
+
+	TransportInfo info_at(double p_running) const {
+		TransportInfo info;
+		info.playing = clock.is_playing();
+		info.bpm = clock.get_bpm();
+		info.song_beat = clock.song_at(p_running);
+		info.looping = clock.is_looping();
+		info.loop_start = clock.get_loop_start();
+		info.loop_end = clock.get_loop_end();
+		return info;
+	}
+
+	// Every target this driver feeds: the channels' current ones and any it ever sent to.
+	std::vector<uint64_t> all_targets() const {
+		std::vector<uint64_t> out = targets_used;
+		for (uint64_t t : channel_target) {
+			if (t != 0 && std::find(out.begin(), out.end(), t) == out.end()) {
+				out.push_back(t);
+			}
+		}
+		return out;
+	}
+
+	// The transport changed at p_now_us: every target hears it; loop jumps are sent afresh.
+	void announce(int64_t p_now_us) {
+		const double r = clock.running_at(p_now_us);
+		const TransportInfo info = info_at(r);
+		for (uint64_t t : all_targets()) {
+			sink.transport(t, p_now_us, info);
+		}
+		jumps_sent_upto = r;
+	}
 
 	void plan(const Event &p_event, double p_r) { schedule.emplace(std::make_pair(p_r, next_seq++), p_event); }
 	void free_plan(const Event &p_event, int64_t p_time_us) { free_schedule.emplace(std::make_pair(p_time_us, next_seq++), p_event); }
@@ -431,6 +525,7 @@ private:
 		clock.stop();
 		paused = false;
 		last_beat = -1;
+		announce(p_now_us);
 	}
 
 	// Sends every target its channels' last heard values again: program first (it may reset the

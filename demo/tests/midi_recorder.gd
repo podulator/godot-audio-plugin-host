@@ -14,6 +14,13 @@ func midi_stop(time_us: int, source: int, mode: int) -> void:
 	stops.append({"time_us": time_us, "source": source, "mode": mode})
 
 
+var transports: Array[Dictionary] = []
+
+
+func midi_transport(time_us: int, source: int, playing: bool, bpm: float, song_beat: float, loop_start: float, loop_end: float) -> void:
+	transports.append({"time_us": time_us, "source": source, "playing": playing, "bpm": bpm, "song_beat": song_beat, "loop_start": loop_start, "loop_end": loop_end})
+
+
 func of(kind: int) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	for e in events:

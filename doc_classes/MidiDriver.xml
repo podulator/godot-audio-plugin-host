@@ -22,6 +22,10 @@
 		func midi_stop(time_us: int, source: int, mode: int) -&gt; void
 		[/codeblock]
 		[code]time_us[/code] is on [method get_time_us]'s clock; [code]kind[/code] is an [enum EventKind], [code]mode[/code] a [enum StopMode], and [code]source[/code] the driver's instance id.
+		A target may also follow the transport (an instrument passes it on to its plugin, for tempo-synced arpeggiators and delays). It is told at once when bound, then whenever the transport changes, and at each loop jump ahead of time; in between, the position is [code]song_beat[/code] plus the time since [code]time_us[/code] at [code]bpm[/code]. [code]loop_end[/code] at or below [code]loop_start[/code] means no loop:
+		[codeblock]
+		func midi_transport(time_us: int, source: int, playing: bool, bpm: float, song_beat: float, loop_start: float, loop_end: float) -&gt; void
+		[/codeblock]
 		The driver keeps running while the scene tree is paused; [method pause] pauses the music.
 	</description>
 	<tutorials>
@@ -244,6 +248,40 @@
 			<param index="1" name="song_beat" type="float" />
 			<description>
 				Emitted on each beat while playing. [param running_beat] counts beats since [method play]; [param song_beat] is the song position there (a loop folds it back). Emitted on the main thread, so up to a frame late: for gameplay, not for timing notes (plan those with [method next] instead).
+			</description>
+		</signal>
+		<signal name="paused">
+			<param index="0" name="song_beat" type="float" />
+			<description>
+				Emitted by [method pause], with the song position where the music stopped.
+			</description>
+		</signal>
+		<signal name="position_changed">
+			<param index="0" name="song_beat" type="float" />
+			<description>
+				Emitted when the song jumps: by [method seek], and each time a loop goes back to its start (then up to a frame late, like [signal beat]).
+			</description>
+		</signal>
+		<signal name="resumed">
+			<param index="0" name="song_beat" type="float" />
+			<description>
+				Emitted by [method play] after a [method pause], with the song position the music goes on from.
+			</description>
+		</signal>
+		<signal name="started">
+			<description>
+				Emitted by [method play] when the transport was stopped (not paused).
+			</description>
+		</signal>
+		<signal name="stopped">
+			<description>
+				Emitted by [method stop] and [method panic].
+			</description>
+		</signal>
+		<signal name="tempo_changed">
+			<param index="0" name="bpm" type="float" />
+			<description>
+				Emitted when [member bpm] changes.
 			</description>
 		</signal>
 	</signals>

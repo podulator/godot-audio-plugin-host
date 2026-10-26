@@ -159,6 +159,21 @@ public:
 		return at_song(target, p_now_us);
 	}
 
+	// The running position at which the song next passes the loop's end (and folds back to its
+	// start), after running position p_r; NaN if it never does (no loop, or already past it).
+	double next_loop_jump_after(double p_r) const {
+		if (!loop_armed) {
+			return never();
+		}
+		const double u = origin + p_r;
+		if (u < loop_end) {
+			return p_r + (loop_end - u);
+		}
+		const double length = loop_end - loop_start;
+		const double into = std::fmod(u - loop_end, length); // how far into the current time round
+		return p_r + (length - into);
+	}
+
 private:
 	void update_loop_armed(double p_song_now) { loop_armed = looping && p_song_now < loop_end; }
 

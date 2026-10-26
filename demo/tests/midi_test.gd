@@ -19,6 +19,8 @@ func _ready() -> void:
 	_test_values()
 	await _test_grid_and_handles()
 	await _test_pause_resume()
+	await _test_signals()
+	await _test_transport()
 	print("MIDI %s" % ("OK" if failures == 0 else "FAILED (%d)" % failures))
 	get_tree().quit(1 if failures else 0)
 
@@ -111,3 +113,50 @@ func _test_pause_resume() -> void:
 		_check(abs(gap - (BEAT_US + paused_for)) < 1000, "a beat of music apart, plus the pause (%d us, want %d)" % [gap, BEAT_US + paused_for])
 	midi.queue_free()
 
+
+
+# The transport's signals, each after its change: started, paused and resumed with the song
+# position, position_changed on a seek and at each loop jump, tempo_changed, stopped.
+func _test_signals() -> void:
+	var midi := MidiDriver.create(1)
+	add_child(midi)
+	var got: Array[String] = []
+	midi.started.connect(func() -> void: got.append("started"))
+	midi.paused.connect(func(b: float) -> void: got.append("paused %.1f" % b))
+	midi.resumed.connect(func(b: float) -> void: got.append("resumed %.1f" % b))
+	midi.stopped.connect(func() -> void: got.append("stopped"))
+	midi.position_changed.connect(func(b: float) -> void: got.append("position %.1f" % b))
+	midi.tempo_changed.connect(func(bpm: float) -> void: got.append("tempo %d" % bpm))
+	midi.play()
+	await _frames(0.25)
+	midi.pause()
+	midi.play()
+	midi.seek(8.0)
+	midi.bpm = 240 # 250 ms a beat
+	midi.set_loop(8.0, 9.0) # one beat, from where the song is now
+	await _frames(0.4) # past the loop's end once
+	midi.stop()
+	var want: Array[String] = ["started", "paused 0.5", "resumed 0.5", "position 8.0", "tempo 240", "position 8.0", "stopped"]
+	_check(got == want, "transport signals in order (%s)" % [got])
+	midi.queue_free()
+
+
+# Targets with midi_transport hear the transport: told at once when bound, then at play, pause
+# (with the song position) and tempo changes.
+func _test_transport() -> void:
+	var midi := MidiDriver.create(1)
+	add_child(midi)
+	var rec := Recorder.new()
+	midi.set_channel_target(1, rec)
+	_check(rec.transports.size() == 1 and not rec.transports[0].playing, "a new target is told the transport at once")
+	midi.play()
+	await _frames(0.25)
+	midi.pause()
+	midi.bpm = 90
+	var t := rec.transports
+	_check(t.size() == 4, "play, pause and tempo each send a snapshot (%d)" % t.size())
+	if t.size() == 4:
+		_check(t[1].playing and t[1].song_beat == 0.0 and t[1].bpm == 120.0, "play: playing from beat 0 at 120 bpm")
+		_check(not t[2].playing and absf(t[2].song_beat - 0.5) < 0.05, "pause: stopped at about beat 0.5 (%.3f)" % t[2].song_beat)
+		_check(t[3].bpm == 90.0 and t[3].source == midi.get_instance_id(), "tempo: 90 bpm, from this driver")
+	midi.queue_free()
