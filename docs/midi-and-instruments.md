@@ -1,6 +1,6 @@
 # MIDI and instruments: design
 
-Status: proposal (26.10.2026). Nothing here is built yet.
+Status: phase 1 built (26-27.10.2026): the driver (`midi_host`), CLAP and VST3 instruments, both saved with the scene. What is built and what is open: see [Phases](#phases).
 
 ## Goal
 
@@ -35,9 +35,15 @@ Two extensions cannot share C++ classes (each library has its own copy of the co
 #   channel: 1-16;  index: the note or controller number;  value: 16-bit velocity, 32-bit otherwise
 #   note_id: the MidiNote's id, or -1
 func midi_event(time_us: int, source: int, kind: int, channel: int, index: int, value: int, note_id: int) -> void
-# From time_us on, for this source: drop every event not yet heard, and end every note still
-# sounding (a note-off: tails ring out; with cut, at once).
-func midi_stop(time_us: int, source: int, cut: bool) -> void
+# From time_us on, for this source: drop every event not yet heard, and, by `mode`:
+#   STOP_WITHDRAW (0): that only, sounding notes go on (a tempo or loop change re-plans);
+#   STOP_RELEASE (1): and a note-off for every sounding note, so tails ring out (pause, stop, seek);
+#   STOP_CUT (2): and silence them at once (panic).
+func midi_stop(time_us: int, source: int, mode: int) -> void
+# Optional: the transport, when a target is bound, whenever it changes, and at each loop jump ahead
+# of time. In between, the position is song_beat plus the time since at bpm. loop_end <= loop_start
+# means no loop. An instrument passes it on to its plugin.
+func midi_transport(time_us: int, source: int, playing: bool, bpm: float, song_beat: float, loop_start: float, loop_end: float) -> void
 ```
 
 One entry point rather than a method per message keeps the protocol small, and new kinds (note expressions, later) fit without changing it; the driver offers the friendly methods. Each target converts to what its plugin speaks: CLAP note events, MIDI 1.0, MIDI 2.0.
@@ -47,10 +53,10 @@ One entry point rather than a method per message keeps the protocol small, and n
 ## The driver
 
 ```gdscript
-var midi := MidiDriver.new(1)           # a node: clock, tempo, routing; MIDI 1.0 value ranges
+var midi := MidiDriver.create(1)        # a node: clock, tempo, routing; MIDI 1.0 value ranges
 add_child(midi)
 midi.bpm = 120
-midi.set_channel_target(1, $Piano)      # an AudioStreamPlayer playing a ClapInstrument
+midi.set_channel_target(1, $Piano.stream) # the ClapInstrument (or Vst3Instrument) a player plays
 midi.set_channel_target(10, $Drums)     # channels 1-16, as on MIDI gear: 10 is the GM drum channel
 midi.set_channel_target(11, $Drums)     # one instrument may listen on several channels
 midi.play()                             # starts the transport: beat position, beat signals
@@ -78,6 +84,7 @@ midi.loop(16.0, 32.0)                   # bars 5 to 8, in 4/4
 midi.stop()                             # back to the start; midi.panic() cuts everything at once
 
 midi.beat.connect(_on_beat)             # gameplay in time with the music
+midi.paused.connect(_on_paused)         # also started, resumed, stopped, position_changed, tempo_changed
 ```
 
 - **When** an event plays is one optional last argument, `at`, on every message: `MidiDriver.NOW` (the default) means now, one block ahead. Helpers on the driver make the others: `midi.next(q)` is the next multiple of `q` beats on the transport's grid (`next(1.0)` the next beat, `next(4.0)` the next 4/4 bar, `next(0.25)` the next sixteenth), `midi.after(b)` is `b` beats from now, and `midi.at_beat(b)` an exact transport position. GDScript has no named arguments, so one `at` reads better than separate `delay` and `quantize` arguments, which every call would have to spell out in order.
@@ -88,18 +95,20 @@ midi.beat.connect(_on_beat)             # gameplay in time with the music
 - **Channels are 1-16**, as on MIDI gear. Channel 0 is an error, which catches code copied from Godot's 0-based `InputEventMIDI`. One instrument may be the target of several channels; every event keeps its channel, so multitimbral instruments work.
 - `beat` is emitted on the main thread, so it can be a frame late; it is for gameplay, not for timing notes. Notes scheduled from it with `at = midi.next(...)` still land exactly.
 - Several drivers may exist (one per song, say); each has its own transport. Every note a driver plays is its own, those played "now" too: its pause and stop end them. Sound effects that should keep playing while a song pauses use a driver of their own.
+- `note_on` with velocity 0 is a note-off, as in MIDI.
+- **Signals** for the transport, each emitted after its change: `started`, `paused(song_beat)`, `resumed(song_beat)`, `stopped`, `position_changed(song_beat)` (on a seek, and at each loop jump), `tempo_changed(bpm)`. Like `beat`, they come on the main thread.
 
 ### The transport: stop, pause, resume, seek, loop
 
 - `pause()`: the position freezes. Everything handed out but not yet heard is withdrawn (`midi_stop`), and sounding notes get their note-off, so tails ring out.
 - `resume()`: the beat-to-time map is anchored afresh at that moment. First the driver sends each channel's last controller, pitch bend, pressure and program values again ("chasing"), so the instruments are in the state the music expects; then it carries on from the same beat. Optionally (`chase_notes`, off by default, as in most DAWs) notes that span the resume point start again.
 - `seek(beat)` and `loop(start, end)` are the same steps: withdraw, end the sounding notes, chase, go on from the new position. At a loop's end the driver jumps back on its own, scheduled ahead, so the jump is exact.
-- `stop()` is `pause()` plus a seek to the start; `panic()` cuts every note at once (`midi_stop` with `cut`), for emergencies.
+- `stop()` is `pause()` plus a seek to the start; `panic()` cuts every note at once (`midi_stop` with `STOP_CUT`), for emergencies. A loop or tempo change withdraws what was handed out (`STOP_WITHDRAW`: sounding notes go on) and hands it out again, re-timed.
 - This is the musical pause, a DAW's. Freezing the sound itself, mid-note and mid-tail (a game's pause menu), is Godot's own pause of the player, and needs no MIDI at all; the instrument's clock must then cope with the gap (it does since 1.1.1, see Timing).
 
 ## MIDI versions
 
-The driver is created for a MIDI version, `MidiDriver.new(1)` or `MidiDriver.new(2)`. The API is the same; the version sets the value ranges:
+The driver is created for a MIDI version, `MidiDriver.create(1)` or `MidiDriver.create(2)` (a GDExtension class takes no constructor arguments, so not `new(1)`; GDSiON's `SiONDriver.create()` does the same). The version is also the `midi_version` property, for a driver placed in a scene. The API is the same; the version sets the value ranges:
 
 | | MIDI 1.0 | MIDI 2.0 |
 | --- | --- | --- |

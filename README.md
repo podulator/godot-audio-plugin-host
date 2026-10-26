@@ -1,13 +1,14 @@
 <h1><img src="https://raw.githubusercontent.com/podulator/godot-audio-plugin-host/v1.0.0/docs/images/gaph-fla-512.png" alt="Godot Audio Plugin Host icon" width="128" align="absmiddle">&nbsp;Godot Audio Plugin Host</h1>
 
-Run **CLAP** and **VST® 3** audio effect plugins on Godot's audio buses, in the editor and in exported games. Two GDExtensions, one per format:
+Run **CLAP** and **VST® 3** audio effect plugins on Godot's audio buses, in the editor and in exported games, and drive them from a real-time **MIDI** driver. Three GDExtensions:
 
-| addon | effect class | sidechain send |
-| --- | --- | --- |
-| `addons/clap_host/` | `ClapPluginEffect` | `ClapSidechainSend` |
-| `addons/vst3_host/` | `Vst3PluginEffect` | `Vst3SidechainSend` |
+| addon | classes |
+| --- | --- |
+| `addons/clap_host/` | `ClapPluginEffect`, `ClapSidechainSend` |
+| `addons/vst3_host/` | `Vst3PluginEffect`, `Vst3SidechainSend` |
+| `addons/midi_host/` | `MidiDriver`, `MidiNote` |
 
-Each addon works on its own, and both can be used in one project.
+Each addon works on its own, and they can be used together in one project.
 
 - Every installed plugin appears in the Audio panel's **Add Effect** menu, next to Godot's own.
 - Parameters show as sliders in the inspector, can be set and scheduled from scripts, and are applied on the exact sample.
@@ -15,6 +16,7 @@ Each addon works on its own, and both can be used in one project.
 - Sidechain input from any other bus.
 - The plugin's own interface opens in a window, in the editor.
 - Plugins can ship with an exported game.
+- A MIDI driver for scripts: notes, controllers and pitch bend, ad hoc or on a beat grid, with a transport (pause, resume, seek, loop), landing on the exact sample.
 
 ## Requirements
 
@@ -33,7 +35,7 @@ Android has no VST3 plugins, so it has no VST3 host either: the `vst3_host` addo
 ## Installing
 
 1. Download a release, or the **godot-audio-plugin-host** artifact from a CI run.
-2. Copy its `addons/clap_host` and/or `addons/vst3_host` into your project's `addons/` folder.
+2. Copy the addons you need (`addons/clap_host`, `addons/vst3_host`, `addons/midi_host`) into your project's `addons/` folder.
 3. Restart the editor. GDExtensions load by themselves; there is nothing to enable under Project Settings > Plugins.
 
 On macOS, clear the download flag once: see [Platform notes](#macos).
@@ -109,6 +111,37 @@ fx.sidechain = "kick"                     # on the ClapPluginEffect, on any othe
 Use `Vst3SidechainSend` for a `Vst3PluginEffect`. The two formats keep separate channels, so a bus feeding both needs one send of each.
 
 Godot mixes buses from the last one up. If the source bus comes **after** the plugin's bus in the Audio panel, the plugin hears the same block; otherwise it hears it one block (512 frames, about 11 ms) later. When Godot stops processing a silent source bus, the sidechain falls silent too.
+
+## MIDI
+
+`MidiDriver` sends MIDI to targets bound to its channels, from scripts: notes, controllers, pitch bend, pressure and program changes, now or planned on a beat grid. Planned events land on the exact audio sample.
+
+```gdscript
+var midi := MidiDriver.create(1)              # MIDI 1.0 value ranges; create(2) for MIDI 2.0
+add_child(midi)
+midi.bpm = 120
+midi.set_channel_target(1, target)            # channels 1-16, as on MIDI gear
+midi.play()
+
+var n := midi.note_on(1, 60, 100)             # now, held until n.off()
+midi.note_on(1, 64, 90, 0.5)                  # half a beat long
+midi.note_on(10, 36, 127, 0, midi.next(1.0))  # on the next beat
+midi.note_on(10, 38, 127, 0, midi.next(4.0))  # on the next bar (4/4)
+midi.control_change(1, 1, 64, midi.at_beat(16.0))
+midi.pitch_bend(1, 2048)                      # -8192..8191 in MIDI 1.0
+
+midi.pause()                                  # notes end, tails ring out; resume() picks up the beat
+midi.seek(32.0)
+midi.set_loop(16.0, 32.0)
+midi.beat.connect(_on_beat)
+```
+
+- **When:** every message takes an optional last argument, `at`: `MidiDriver.NOW` (the default), or a position from `next(grid)`, `after(beats)` or `at_beat(song_beat)`. "Now" is heard one audio block (about 11.6 ms) later; anything planned ahead is exact.
+- **Values** are in the ranges of the driver's MIDI version: 0-127 for velocity and controllers and -8192 to 8191 for pitch bend in MIDI 1.0; 16-bit velocity and 32-bit controllers, pressures and pitch bend in MIDI 2.0. Out-of-range values are refused with an error.
+- **Notes:** `note_on` returns a `MidiNote`, which ends exactly that note (`off()`), and says whether it is still sounding. Velocity 0 is a note-off, as in MIDI.
+- **The transport:** `play()`, `pause()` (the position stays, sounding notes end, planned events wait), `play()` again to resume (controllers are sent again first), `stop()`, `seek()`, `set_loop()`, `panic()`. Signals: `beat`, `started`, `paused`, `resumed`, `stopped`, `position_changed`, `tempo_changed`, on the main thread.
+- **Targets** are objects with `midi_event()` and `midi_stop()` methods, and optionally `midi_transport()`: a GDScript synth can be one. The class reference (F1, `MidiDriver`) describes them.
+- The driver keeps running while the scene tree is paused; `pause()` pauses the music. Several drivers can run side by side, each with its own transport.
 
 ## Where plugins are found
 
@@ -192,7 +225,8 @@ xattr -dr com.apple.quarantine addons/clap_host addons/vst3_host
 
 ## Limitations
 
-- **Effects only.** No instruments, no MIDI in or out, and no offline rendering yet.
+- **Effects only.** No instruments yet, and no offline rendering.
+- **No MIDI hardware yet.** [MIDI](#midi) comes from scripts; MIDI input from and output to devices, and MIDI files, are not there yet.
 - **Stereo pairs.** Godot runs one instance of an effect per stereo channel pair, so on a 5.1 or 7.1 bus there are three or four plugin instances, kept in step by the host.
 - **Latency.** Parameter changes are heard one audio block (about 11.6 ms at 44.1 kHz) after they are made, evenly spaced. Plugins that report their own latency are not compensated for.
 - **Blocks of 512 frames.** That is Godot's mixing block; the host never hands a plugin more than it was prepared for.

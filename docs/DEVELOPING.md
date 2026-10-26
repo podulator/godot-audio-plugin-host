@@ -42,9 +42,9 @@ runs everything that can run on this machine, and needs Godot (4.5 or later) on 
 
 | part | what it checks |
 | --- | --- |
-| `tests/core/` | the plain C++ core (queues, timing, sidechains), under AddressSanitizer and ThreadSanitizer |
+| `tests/core/` | the plain C++ core (queues, timing, sidechains, and the MIDI driver's transport and sequencer, `test_midi.cpp`, with made-up times), under AddressSanitizer and ThreadSanitizer |
 | `tests/clap/`, `tests/vst3/` | each host against real plugins, under AddressSanitizer: loading, parameters, state, sidechain, sample-exact timing |
-| `demo/tests/*.tscn` | headless Godot scenes: both formats on real buses, sidechains, state, timing, the lock, menu classes, plugin folders |
+| `demo/tests/*.tscn` | headless Godot scenes: both formats on real buses, sidechains, state, timing, the lock, menu classes, plugin folders, and the MIDI driver through a GDScript target (`midi_test`: ranges, the grid to the microsecond, notes, pause and resume, signals, transport) |
 | `tests/platform/` | the same core checks with only this repository's plugins: what CI runs on every platform |
 | `tests/export/` | a real Linux export (debug and release) loading its plugin, and a macOS app assembled on Linux |
 | `tests/windows/` | plugin windows on Windows: under Wine on Linux (nothing shows on screen), natively on Windows |
@@ -61,6 +61,8 @@ Our own plugins mean nothing has to be installed. Tests for third-party plugins 
 Their GUIs size themselves 300 x 200 times the scale the host sends, and can ask the host for a new size, so the GUI tests (`tests/gui/`) check window type, scale, sizing and resize requests through the host's real code.
 
 Two tests depend on timing. Run them on an idle machine: a Godot build alongside makes them fail. Scratch files go to `$GAPH_TEST_TMP`, or a folder in the system's temporary directory.
+
+No test touches your home directory: every script that starts Godot, Wine or a plugin host sources `tests/isolated_home.sh`, which points `HOME` and the XDG folders at a scratch folder there and links Godot's export templates in, read only. (On Windows, where Godot uses `%APPDATA%`, it does nothing.)
 
 ## CI (GitHub Actions)
 
@@ -99,17 +101,18 @@ and merge the new entries from `/tmp/docs/doc_classes/` into `doc_classes/`.
 
 | path | what it is |
 | --- | --- |
-| `src/core/` | plain C++, compiled into both libraries, no Godot: effect runtime, lock-free queue, parameter timing (`block_clock.h`), sidechain channels, run loop, and the plugin windows (X11, Win32, Cocoa: `native_window.h`) |
+| `src/core/` | plain C++, compiled into both libraries, no Godot: effect runtime, lock-free queue, parameter timing (`block_clock.h`), sidechain channels, run loop, and the plugin windows (X11, Win32, Cocoa: `native_window.h`); the MIDI driver's core, header only (`midi_values.h`, `midi_transport.h`, `midi_sequencer.h`) |
 | `src/godot_common/` | Godot glue both libraries compile in, as functions and helpers rather than shared classes: parameter properties, Add Effect menu classes, plugin folders, export, scan guard, editor window |
 | `src/clap/`, `src/vst3/` | each format's host, Godot classes, editor plugin and entry point |
 | `src/vst3_android/` | the empty `vst3_host` extension for Android |
+| `src/midi/` | the `midi_host` extension: `MidiDriver` and `MidiNote`, on the core's sequencer |
 | `doc_classes/` | the class reference, one XML file per class |
 | `examples/` | the smallest gain plugin in each format, also used by the tests |
 | `vst3_sdk_sources.txt` | the VST3 SDK files compiled in; read by SConstruct and the tests |
 | `thirdparty/` | submodules: godot-cpp (4.5 branch), the CLAP SDK 1.2.9, the VST3 SDK 3.8.1 (all MIT) |
-| `demo/` | a Godot project with both addons, the test scenes (`tests/`) and a by-hand GUI test (`gui_test/`) |
+| `demo/` | a Godot project with the addons, the test scenes (`tests/`) and a by-hand GUI test (`gui_test/`) |
 | `tests/` | see [Tests](#tests) |
-| `docs/` | this file, macOS signing, the VST logo |
+| `docs/` | this file, macOS signing, the design of MIDI and instruments (`midi-and-instruments.md`), the VST logo |
 
 The core registers no Godot classes, because two extensions registering the same class name is a load failure. Everything Godot-facing is named per format.
 
@@ -130,6 +133,8 @@ Verified against the Godot 4.5 source:
 - VST3 instruments share the effect category; only the subcategory ("Instrument") tells them apart, so they are filtered out explicitly.
 
 The plugin windows: `src/core/native_window.h` names one window class per platform, all with the same interface (`X11Window`, `Win32Window`, `CocoaWindow`), and `plugin_window_api()` gives what else differs: the window type each format asks for, and whether the host sends the plugin a scale (Linux and Windows: pixels, so yes; macOS: points, so no, as CLAP's `gui.h` requires). On Windows, Godot's own main loop dispatches the messages of every window on its thread, so plugin windows need no loop of their own.
+
+The MIDI driver plans on the main thread and in beats: its schedule holds events at running positions on the transport, and every frame hands what falls within a lookahead (100 ms) to the targets, each with its host time (`host_time_us()`, the clock both extensions read). Pause, a loop or a tempo change withdraws what was handed out but not heard (`midi_stop`) and plans it again, so the schedule never has to be rewritten in microseconds. Notes are tracked by id from the call to their end, and the last heard controller values per channel are sent again on resume. The design, and what was decided why: [midi-and-instruments.md](midi-and-instruments.md).
 
 ## Known issues in detail
 
