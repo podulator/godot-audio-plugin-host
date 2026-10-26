@@ -149,6 +149,7 @@ An instrument holds at most the lookahead's worth of events, in the runtime's fi
 | Android (CLAP) | no audio input; the main output port only |
 
 - **The target** is the instrument resource itself: `midi.set_channel_target(1, $Piano.stream)`.
+- **One plugin instance per instrument,** however many players play it (`godot_common/shared_voice.h`): the first playback mixed in a mix step makes the plugin render that step's block, the others copy it, so all are in step to the sample in whatever order Godot mixes them. The step is identified by when the sound card last asked for audio (`AudioServer.get_time_since_last_mix()`, as Godot keeps its own step count to itself) and which step of that request it is. A playback starting between two steps of one request is a block off until the next request (about 23 ms at most), then in step.
 - **midi_stop:** the audio thread only learns "drop this source's events from time T". Which notes still sound at T is worked out on the main thread, which queued them all (`core/midi_target.h`), and they get a note-off (RELEASE) or a choke (CUT) at T.
 - **Events into CLAP:** by the plugin's `note-ports` dialects: CLAP note events (with the `note_id`, velocity 0..1) where taken; else MIDI 2.0 (`CLAP_EVENT_MIDI2`, full resolution); else MIDI 1.0 (`CLAP_EVENT_MIDI`), converted down. Controllers, pitch bend, pressure and program change always go as MIDI.
 - **Events into VST3:** notes and poly pressure as VST3 events on the first event input bus. VST3 has no controller events: the plugin's `IMidiMapping` is read into a table when it starts (a main-thread call), and controllers, channel pressure, pitch bend and program change become changes of the parameters it maps them to.
@@ -156,7 +157,6 @@ An instrument holds at most the lookahead's worth of events, in the runtime's fi
 - **Saving,** as for effects: `plugin_state` and `param_values`, in that order after the plugin; parameters as inspector sliders.
 - **Mix rate:** the playback runs at the `AudioServer`'s mix rate, so Godot does not resample.
 - **Not built yet:**
-  - more than one playback per instrument (every playback gets every note);
   - several audio outputs (drum machines and samplers with one output pair per drum): a player delivers one signal to one bus, so the main output plays; more would go to their own buses, like the sidechain sends in reverse;
   - skipping a CLAP plugin that returns `CLAP_PROCESS_SLEEP`, so a silent instrument costs nothing;
   - instruments listed by name (per-plugin classes, as the Add Effect menu has for effects);

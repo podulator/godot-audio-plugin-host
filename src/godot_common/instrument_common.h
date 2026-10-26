@@ -8,13 +8,14 @@
 //   InstrumentInput   the MidiDriver target methods, on the MAIN thread: events and transport
 //                     queued to every running instance (HostedEffect), and midi_stop's
 //                     bookkeeping (which notes still sound at the stop, core/midi_target.h).
-//   InstrumentVoice   one playback's sound, on the AUDIO thread: the plugin run with silence as
-//                     its input, through the same EffectRuntime effects use.
+//   SharedVoice       the instrument's one plugin instance, heard through all its playbacks
+//                     (shared_voice.h).
 
 #include "core/effect_runtime.h"
 #include "core/hosted_effect.h"
 #include "core/midi_target.h"
 #include "core/midi_values.h"
+#include "godot_common/shared_voice.h"
 
 #include <godot_cpp/classes/audio_server.hpp>
 #include <godot_cpp/classes/audio_stream_playback.hpp>
@@ -125,44 +126,5 @@ inline PackedByteArray get_state_bytes(gaph::HostedEffect &p_hosted) {
 	}
 	return out;
 }
-
-// One playback's sound. The format's AudioStreamPlayback subclass owns one, and forwards
-// setup (MAIN thread, before Godot mixes the playback: no lock needed to hand the runtime a plugin
-// instance), detach (MAIN thread, after Godot has taken the playback out of the mix) and mix
-// (AUDIO thread) to it.
-class InstrumentVoice {
-public:
-	void setup(gaph::HostedEffect &p_hosted) {
-		runtime.set_sample_rate(AudioServer::get_singleton()->get_mix_rate());
-		silence.assign(size_t(gaph::EffectRuntime::MAX_BLOCK) * 2, 0.0f);
-		p_hosted.attach(runtime);
-		hosted = &p_hosted;
-	}
-
-	void detach() {
-		if (hosted) {
-			hosted->detach(runtime);
-			hosted = nullptr;
-		}
-	}
-
-	// AUDIO THREAD. The plugin's output for p_frames frames, in slices of at most MAX_BLOCK (Godot
-	// asks for 512 at a time; the loop is insurance). Silence goes in: an instrument has no input.
-	int32_t mix(AudioFrame *p_buffer, int32_t p_frames) {
-		float *out = reinterpret_cast<float *>(p_buffer);
-		int32_t done = 0;
-		while (done < p_frames) {
-			const uint32_t n = uint32_t(std::min<int32_t>(p_frames - done, int32_t(gaph::EffectRuntime::MAX_BLOCK)));
-			runtime.process(silence.data(), out + size_t(done) * 2, n);
-			done += int32_t(n);
-		}
-		return p_frames;
-	}
-
-private:
-	gaph::EffectRuntime runtime;
-	std::vector<float> silence; // the plugin's (unused) input: zeros, allocated once
-	gaph::HostedEffect *hosted = nullptr; // the instrument's, which outlives every playback (they hold a reference to it)
-};
 
 } // namespace gaph_godot

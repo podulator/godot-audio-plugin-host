@@ -16,7 +16,7 @@
 		midi.note_on(1, 60, 100, 1.0)
 		[/codeblock]
 		Notes land on the exact audio sample the driver planned them for, and the plugin follows the driver's tempo and song position (CLAP transport). Notes go to the plugin as CLAP note events where it takes them, otherwise as MIDI 2.0 or MIDI 1.0; controllers, pitch bend, pressure and program always go as MIDI.
-		One playback at a time: keep the player's [member AudioStreamPlayer.max_polyphony] at 1, as every playback gets every note.
+		Players that play the same instrument all hear its one plugin instance, in step to the sample: two [AudioStreamPlayer3D]s are one synth heard in two places. For two independent synths, use two instruments.
 	</description>
 	<tutorials>
 	</tutorials>

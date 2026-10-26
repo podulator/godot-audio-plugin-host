@@ -14,8 +14,8 @@
 // A playback is made on the MAIN thread (AudioStreamPlayer::play), before Godot adds it to the
 // mix, and Godot drops its own reference on the main thread too, after taking it out of the mix
 // (AudioServer::update). So the plugin instance is created and destroyed on the main thread,
-// never while the audio thread can reach it, as for effects. Version 1 assumes one playback at a
-// time (a player's max_polyphony of 1): every playback would get every note.
+// never while the audio thread can reach it, as for effects. All playbacks of one instrument hear
+// its ONE plugin instance (godot_common/shared_voice.h): two players are one synth in two places.
 //
 // MIDI IN (the MidiDriver target protocol, see midi_host's MidiDriver)
 //   midi_event(time_us, source, kind, channel, index, value, note_id): queued to the plugin.
@@ -61,7 +61,7 @@ protected:
 
 private:
 	Ref<ClapInstrument> instrument;
-	gaph_godot::InstrumentVoice voice;
+	gaph_godot::VoiceTap tap; // which mix step this playback is in (shared_voice.h)
 	bool playing = false;
 };
 
@@ -107,6 +107,7 @@ public:
 	bool _is_monophonic() const override { return true; }
 
 	gaph::HostedEffect &get_hosted() { return hosted; }
+	gaph_godot::SharedVoice &get_voice() { return voice; }
 	int64_t get_frames_processed();
 
 protected:
@@ -133,6 +134,7 @@ private:
 	// running instances (HostedEffect's registry).
 	mutable gaph::HostedEffect hosted;
 	gaph_godot::InstrumentInput input;
+	gaph_godot::SharedVoice voice; // the one plugin instance all playbacks hear
 	gaph_godot::EditorWindow editor_window;
 };
 

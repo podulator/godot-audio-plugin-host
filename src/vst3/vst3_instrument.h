@@ -33,14 +33,14 @@ public:
 	void _stop() override { playing = false; }
 	bool _is_playing() const override { return playing; }
 	double _get_playback_position() const override { return 0.0; }
-	int32_t _mix(AudioFrame *p_buffer, float, int32_t p_frames) override { return voice.mix(p_buffer, p_frames); }
+	int32_t _mix(AudioFrame *p_buffer, float, int32_t p_frames) override;
 
 protected:
 	static void _bind_methods() {}
 
 private:
 	Ref<Vst3Instrument> instrument;
-	gaph_godot::InstrumentVoice voice;
+	gaph_godot::VoiceTap tap; // which mix step this playback is in (shared_voice.h)
 	bool playing = false;
 };
 
@@ -85,6 +85,7 @@ public:
 	bool _is_monophonic() const override { return true; }
 
 	gaph::HostedEffect &get_hosted() { return hosted; }
+	gaph_godot::SharedVoice &get_voice() { return voice; }
 
 protected:
 	static void _bind_methods();
@@ -108,6 +109,7 @@ private:
 	std::unique_ptr<gaph::Vst3Processor> probe;
 	mutable gaph::HostedEffect hosted; // mutable: see ClapInstrument
 	gaph_godot::InstrumentInput input;
+	gaph_godot::SharedVoice voice; // the one plugin instance all playbacks hear
 	gaph_godot::EditorWindow editor_window;
 };
 

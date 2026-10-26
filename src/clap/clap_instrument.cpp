@@ -14,15 +14,17 @@ namespace godot {
 using gaph_godot::to_std;
 
 // --- ClapInstrumentPlayback ------------------------------------------------------------------
-// The sound itself is gaph_godot::InstrumentVoice (godot_common/instrument_common.h).
+// The sound is the instrument's, shared by all its playbacks (godot_common/shared_voice.h).
 
 void ClapInstrumentPlayback::setup(const Ref<ClapInstrument> &p_instrument) {
 	instrument = p_instrument;
-	voice.setup(instrument->get_hosted());
+	instrument->get_voice().join(instrument->get_hosted(), tap);
 }
 
 ClapInstrumentPlayback::~ClapInstrumentPlayback() {
-	voice.detach();
+	if (instrument.is_valid()) {
+		instrument->get_voice().leave();
+	}
 }
 
 void ClapInstrumentPlayback::_start(double) {
@@ -38,7 +40,7 @@ bool ClapInstrumentPlayback::_is_playing() const {
 }
 
 int32_t ClapInstrumentPlayback::_mix(AudioFrame *p_buffer, float, int32_t p_frames) {
-	return voice.mix(p_buffer, p_frames);
+	return instrument->get_voice().mix(tap, p_buffer, p_frames);
 }
 
 // --- ClapInstrument: setup and loading (as ClapPluginEffect does it) ---------------------------

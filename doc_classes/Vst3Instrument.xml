@@ -13,7 +13,7 @@
 		midi.set_channel_target(1, synth)
 		[/codeblock]
 		Notes go to the plugin as VST3 note events, on the exact audio sample the driver planned them for. VST3 has no controller events: controllers, pitch bend, channel pressure and program change reach the parameters the plugin assigns to them (its MIDI mapping), and do nothing where it assigns none. The transport reaches the plugin once per audio block, so a loop jump inside a block is heard from the next block on (512 samples at most; [ClapInstrument] gets it on its sample).
-		One playback at a time, as for [ClapInstrument].
+		Players that play the same instrument all hear its one plugin instance, in step to the sample, as for [ClapInstrument].
 	</description>
 	<tutorials>
 	</tutorials>

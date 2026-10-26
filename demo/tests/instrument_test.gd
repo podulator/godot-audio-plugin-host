@@ -30,6 +30,7 @@ func _ready() -> void:
 		await _test_midi_dialect(path)
 		await _test_pause(path)
 		await _test_two_channels(path)
+		await _test_two_players(path)
 		await _test_transport(path)
 	var vst3_notes := TestUtilScript.own_plugin("gaph_test_vst3_instrument.vst3")
 	var vst3_transport := TestUtilScript.own_plugin("gaph_test_vst3_transport.vst3")
@@ -314,3 +315,42 @@ func _note_level(inst: AudioStream, bus_name: String) -> float:
 	var steps := _steps(await _collect(r.cap, 0.9))
 	await _unrig(r)
 	return steps[0][1] if steps.size() > 0 else -1.0
+
+
+
+# One instrument in two players on one bus: one plugin instance, heard twice. In step, the two add
+# up: a note goes from 0 straight to 0.5 on one sample (a block apart, there would be a step at 0.25
+# for 512 samples). The plugin renders once: its frames grow at one stream's rate, not two. And a
+# player joining later, mid-music, falls in step the same way.
+func _test_two_players(path: String) -> void:
+	var r := await _rig(path, CLAP_ID, "Inst_Two_Players")
+	var second := AudioStreamPlayer.new()
+	second.stream = r.inst
+	second.bus = r.bus
+	add_child(second)
+	second.play()
+	var midi: MidiDriver = r.midi
+	midi.set_channel_target(1, r.inst)
+	midi.play()
+	await get_tree().create_timer(0.3).timeout
+	var before: int = r.inst.get_frames_processed()
+	var t0 := Time.get_ticks_usec()
+	midi.note_on(1, 60, 127, 0.5, midi.after(0.5))
+	var steps := _steps(await _collect(r.cap, 1.0))
+	var seconds := float(Time.get_ticks_usec() - t0) / 1e6
+	var per_second := float(r.inst.get_frames_processed() - before) / seconds
+	_check(steps.size() == 2 and is_equal_approx(steps[0][1], 0.5), "two players, one instrument: the note at 0.5 on one sample (%s)" % str(steps))
+	_check(per_second < rate * 1.3, "one plugin instance renders: %.0f frames a second, about %d" % [per_second, int(rate)])
+
+	var late := AudioStreamPlayer.new() # joins mid-music
+	late.stream = r.inst
+	late.bus = r.bus
+	add_child(late)
+	late.play()
+	await get_tree().create_timer(0.3).timeout
+	midi.note_on(1, 62, 127, 0.5, midi.after(0.5))
+	var three := _steps(await _collect(r.cap, 1.0))
+	_check(three.size() == 2 and is_equal_approx(three[0][1], 0.75), "a third player, joined later, in step too: 0.75 on one sample (%s)" % str(three))
+	second.queue_free()
+	late.queue_free()
+	await _unrig(r)
