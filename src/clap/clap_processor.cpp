@@ -3,6 +3,7 @@
 #include "core/channel_map.h"
 #include "core/midi_values.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -310,6 +311,12 @@ bool ClapProcessor::process(const AudioBlock &p_block) {
 	// header (size, time, space_id, type, flags). That lets a plugin walk a mixed list of notes,
 	// parameters and MIDI by reading only the header and switching on `type`. -1 in note_id,
 	// port, channel and key means "all": a plain knob move, not a per-note modulation.
+	// The block's transport is the one in force at its first sample: worked out BEFORE this block's
+	// events, since a snapshot among them only applies from its own sample (as a transport event).
+	const bool block_has_transport = transport_state.known;
+	if (block_has_transport) {
+		fill_transport(block_transport, steady_time);
+	}
 	in_event_count = 0;
 	for (uint32_t i = 0; i < p_block.param_event_count && in_event_count < MAX_IN_EVENTS; i++) {
 		const ParamEvent &src = p_block.param_events[i];
@@ -320,6 +327,24 @@ bool ClapProcessor::process(const AudioBlock &p_block) {
 			if (sent) {
 				in_event_count++;
 			}
+			continue;
+		}
+		if (src.type == ParamEvent::TRANSPORT) {
+			// A new snapshot from the driver, true from this sample on; the plugin hears it as a
+			// transport event right here, and in proc.transport from the next block.
+			TransportState &ts = transport_state;
+			ts.known = true;
+			ts.playing = src.midi_value != 0;
+			ts.bpm = src.value > 0 ? src.value : 120.0;
+			ts.beat = src.transport_beat;
+			ts.looping = src.loop_end > src.loop_start;
+			ts.loop_start = src.loop_start;
+			ts.loop_end = src.loop_end;
+			ts.at = steady_time + int64_t(time);
+			InEvent &out = in_event_storage[in_event_count++];
+			out = {};
+			fill_transport(out.transport, ts.at);
+			out.transport.header.time = time;
 			continue;
 		}
 		if (src.type != ParamEvent::PARAM) {
@@ -345,9 +370,10 @@ bool ClapProcessor::process(const AudioBlock &p_block) {
 	clap_process_t proc = {};
 	proc.steady_time = steady_time;
 	proc.frames_count = n;
-	// No transport (tempo, bar position, playing or stopped): a game has no timeline. Plugins
-	// must accept nullptr here; tempo-synced delays fall back to their own default tempo.
-	proc.transport = nullptr;
+	// The transport: an instrument fed by a MidiDriver has one (see TransportState); an effect has
+	// none, as a game has no timeline. Plugins must accept nullptr; tempo-synced delays then fall
+	// back to their own default tempo. Worked out above, for the block's first sample.
+	proc.transport = block_has_transport ? &block_transport : nullptr;
 	proc.audio_inputs = input_buffers.empty() ? nullptr : input_buffers.data();
 	proc.audio_inputs_count = uint32_t(input_buffers.size());
 	proc.audio_outputs = output_buffers.empty() ? nullptr : output_buffers.data();
@@ -434,6 +460,34 @@ void ClapProcessor::translate_midi(const ParamEvent &p_src, uint32_t p_time, InE
 		gaph::midi::encode_midi1(kind, p_src.midi_channel, p_src.midi_index, p_src.midi_value, ev.data);
 		r_sent = true;
 	}
+}
+
+// The transport at steady time p_steady_time: the last snapshot, moved on by the time since, at its
+// tempo while playing. 4/4 is assumed (the driver has no time signature yet).
+void ClapProcessor::fill_transport(clap_event_transport_t &r_out, int64_t p_steady_time) const {
+	const TransportState &ts = transport_state;
+	const double beat = ts.playing ? ts.beat + double(p_steady_time - ts.at) / sample_rate * ts.bpm / 60.0 : ts.beat;
+	auto beattime = [](double p_beats) { return clap_beattime(std::llround(p_beats * double(CLAP_BEATTIME_FACTOR))); };
+	r_out = {};
+	r_out.header.size = sizeof(clap_event_transport_t);
+	r_out.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+	r_out.header.type = CLAP_EVENT_TRANSPORT;
+	r_out.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE | CLAP_TRANSPORT_HAS_TIME_SIGNATURE;
+	if (ts.playing) {
+		r_out.flags |= CLAP_TRANSPORT_IS_PLAYING;
+	}
+	if (ts.looping) {
+		r_out.flags |= CLAP_TRANSPORT_IS_LOOP_ACTIVE;
+	}
+	r_out.song_pos_beats = beattime(beat);
+	r_out.tempo = ts.bpm;
+	r_out.loop_start_beats = beattime(ts.loop_start);
+	r_out.loop_end_beats = beattime(ts.loop_end);
+	const double bar = std::floor(beat / 4.0);
+	r_out.bar_start = beattime(bar * 4.0);
+	r_out.bar_number = int32_t(bar);
+	r_out.tsig_num = 4;
+	r_out.tsig_denom = 4;
 }
 
 uint32_t ClapProcessor::in_events_size(const clap_input_events_t *p_list) {

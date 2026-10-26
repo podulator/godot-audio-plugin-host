@@ -197,12 +197,25 @@ private:
 		clap_event_note_t note;
 		clap_event_midi_t midi;
 		clap_event_midi2_t midi2;
+		clap_event_transport_t transport;
 	};
 	std::vector<InEvent> in_event_storage;
 	// The plugin's note input (CLAP_EXT_NOTE_PORTS): which ways of sending notes it takes
 	// (CLAP_NOTE_DIALECT_* bits), 0 if it has no note input at all.
 	uint32_t note_dialects = 0;
 	void translate_midi(const ParamEvent &p_src, uint32_t p_time, InEvent &r_out, bool &r_sent);
+
+	// The transport, for an instrument fed by a MidiDriver (none for effects: proc.transport stays
+	// nullptr, as a game has no timeline). The driver sends a snapshot when anything changes; the
+	// position in between is worked out here: song_beat at steady time `at`, moving at bpm.
+	struct TransportState {
+		bool known = false, playing = false, looping = false;
+		double bpm = 120.0, beat = 0.0, loop_start = 0.0, loop_end = 0.0;
+		int64_t at = 0; // the steady time (sample count) at which `beat` was true
+	};
+	TransportState transport_state;
+	clap_event_transport_t block_transport = {};
+	void fill_transport(clap_event_transport_t &r_out, int64_t p_steady_time) const;
 	uint32_t in_event_count = 0;
 	clap_input_events_t in_events = {};
 	clap_output_events_t out_events = {};

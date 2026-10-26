@@ -2,11 +2,17 @@
  *
  *   org.godot-audio-plugin-host.test-instrument       takes CLAP note events (and MIDI for controllers)
  *   org.godot-audio-plugin-host.test-instrument-midi  takes MIDI 1.0 only
+ *   org.godot-audio-plugin-host.test-transport        plays back the host's transport
  *
  * No oscillator: every sounding note adds a constant, velocity (0..1) x 0.25, to both outputs, and
  * channel volume (CC 7, 0..127) scales the sum. So a note's start and end show as exact steps in
  * the audio, on the very sample its event names, and the level says how many notes sound and how
  * loud. A choke, or All Sound Off (CC 120), silences notes like a note-off. No audio input.
+ *
+ * The transport plugin ignores notes: its left output is the song position in beats x 0.001 at
+ * every sample (from proc->transport and transport events, moved on at the tempo while playing),
+ * its right output the tempo x 0.001 while playing, else 0. So the audio shows what the plugin was
+ * told, sample by sample: a loop jump is a step down on the very sample it happens.
  */
 #include <clap/clap.h>
 
@@ -27,6 +33,13 @@ typedef struct {
 	clap_plugin_t plugin;
 	const clap_host_t *host;
 	bool midi_only;
+	bool transport_only;
+	double rate;
+	/* The transport as last told: position `beat` at sample `at` of this block (may be negative
+	 * when carried over from an earlier block), tempo, playing. */
+	bool known, playing;
+	double beat, tempo;
+	int64_t at;
 	Note notes[MAX_NOTES];
 	int note_count;
 	float volume[16]; /* CC 7 per channel, 0..1 */
@@ -37,6 +50,10 @@ static const char *const FEATURES[] = { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLU
 static const clap_plugin_descriptor_t DESC_CLAP = {
 	CLAP_VERSION_INIT, "org.godot-audio-plugin-host.test-instrument", "GAPH Test Instrument", "Godot Audio Plugin Host", "", "", "", "1.0.0",
 	"Each note adds velocity x 0.25: notes as CLAP events", FEATURES,
+};
+static const clap_plugin_descriptor_t DESC_TRANSPORT = {
+	CLAP_VERSION_INIT, "org.godot-audio-plugin-host.test-transport", "GAPH Test Transport", "Godot Audio Plugin Host", "", "", "", "1.0.0",
+	"Plays back the host's transport: song position and tempo as levels", FEATURES,
 };
 static const clap_plugin_descriptor_t DESC_MIDI = {
 	CLAP_VERSION_INIT, "org.godot-audio-plugin-host.test-instrument-midi", "GAPH Test Instrument (MIDI)", "Godot Audio Plugin Host", "", "", "", "1.0.0",
@@ -100,8 +117,23 @@ static void handle_midi1(Instrument *s, const uint8_t data[3]) {
 	}
 }
 
+static void take_transport(Instrument *s, const clap_event_transport_t *t, int64_t at) {
+	s->known = true;
+	s->playing = (t->flags & CLAP_TRANSPORT_IS_PLAYING) != 0;
+	s->beat = (double)t->song_pos_beats / (double)CLAP_BEATTIME_FACTOR;
+	s->tempo = (t->flags & CLAP_TRANSPORT_HAS_TEMPO) ? t->tempo : 120.0;
+	s->at = at;
+}
+
 static void handle_event(Instrument *s, const clap_event_header_t *h) {
 	if (h->space_id != CLAP_CORE_EVENT_SPACE_ID) {
+		return;
+	}
+	if (h->type == CLAP_EVENT_TRANSPORT) {
+		take_transport(s, (const clap_event_transport_t *)h, (int64_t)h->time);
+		return;
+	}
+	if (s->transport_only) {
 		return;
 	}
 	if (!s->midi_only && (h->type == CLAP_EVENT_NOTE_ON || h->type == CLAP_EVENT_NOTE_OFF || h->type == CLAP_EVENT_NOTE_CHOKE)) {
@@ -131,7 +163,8 @@ static void p_destroy(const clap_plugin_t *p) {
 }
 
 static bool p_activate(const clap_plugin_t *p, double rate, uint32_t min_frames, uint32_t max_frames) {
-	(void)p, (void)rate, (void)min_frames, (void)max_frames;
+	(void)min_frames, (void)max_frames;
+	self_of(p)->rate = rate;
 	return true;
 }
 
@@ -162,6 +195,9 @@ static clap_process_status p_process(const clap_plugin_t *p, const clap_process_
 	float *left = proc->audio_outputs[0].data32[0];
 	float *right = proc->audio_outputs[0].data32[1];
 	uint32_t next = 0;
+	if (s->transport_only && proc->transport) {
+		take_transport(s, proc->transport, 0);
+	}
 	for (uint32_t f = 0; f < frames; f++) {
 		/* Every event due at this sample first, so its change shows on exactly this sample. */
 		while (next < count) {
@@ -172,10 +208,17 @@ static clap_process_status p_process(const clap_plugin_t *p, const clap_process_
 			handle_event(s, h);
 			next++;
 		}
-		const float v = level_now(s);
-		left[f] = v;
-		right[f] = v;
+		if (s->transport_only) {
+			const double beat = s->playing ? s->beat + (double)((int64_t)f - s->at) / s->rate * s->tempo / 60.0 : s->beat;
+			left[f] = s->known ? (float)(beat * 0.001) : 0.0f;
+			right[f] = s->known && s->playing ? (float)(s->tempo * 0.001) : 0.0f;
+		} else {
+			const float v = level_now(s);
+			left[f] = v;
+			right[f] = v;
+		}
 	}
+	s->at -= (int64_t)frames; /* the same moment, counted from the next block's first sample */
 	while (next < count) { /* any beyond the block's end (a host should not send them) */
 		handle_event(s, proc->in_events->get(proc->in_events, next++));
 	}
@@ -249,18 +292,19 @@ static void p_on_main_thread(const clap_plugin_t *p) {
 
 static uint32_t factory_count(const clap_plugin_factory_t *f) {
 	(void)f;
-	return 2;
+	return 3;
 }
 
 static const clap_plugin_descriptor_t *factory_descriptor(const clap_plugin_factory_t *f, uint32_t index) {
 	(void)f;
-	return index == 0 ? &DESC_CLAP : (index == 1 ? &DESC_MIDI : NULL);
+	return index == 0 ? &DESC_CLAP : (index == 1 ? &DESC_MIDI : (index == 2 ? &DESC_TRANSPORT : NULL));
 }
 
 static const clap_plugin_t *factory_create(const clap_plugin_factory_t *f, const clap_host_t *host, const char *id) {
 	(void)f;
 	const bool midi_only = !strcmp(id, DESC_MIDI.id);
-	if (!midi_only && strcmp(id, DESC_CLAP.id)) {
+	const bool transport_only = !strcmp(id, DESC_TRANSPORT.id);
+	if (!midi_only && !transport_only && strcmp(id, DESC_CLAP.id)) {
 		return NULL;
 	}
 	Instrument *s = (Instrument *)calloc(1, sizeof(Instrument));
@@ -269,7 +313,9 @@ static const clap_plugin_t *factory_create(const clap_plugin_factory_t *f, const
 	}
 	s->host = host;
 	s->midi_only = midi_only;
-	s->plugin.desc = midi_only ? &DESC_MIDI : &DESC_CLAP;
+	s->transport_only = transport_only;
+	s->rate = 44100.0;
+	s->plugin.desc = midi_only ? &DESC_MIDI : (transport_only ? &DESC_TRANSPORT : &DESC_CLAP);
 	s->plugin.plugin_data = s;
 	s->plugin.init = p_init;
 	s->plugin.destroy = p_destroy;

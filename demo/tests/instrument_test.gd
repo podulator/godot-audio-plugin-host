@@ -8,6 +8,7 @@ extends Node
 const TestUtilScript = preload("res://tests/test_util.gd")
 const CLAP_ID := "org.godot-audio-plugin-host.test-instrument"
 const MIDI_ID := "org.godot-audio-plugin-host.test-instrument-midi"
+const TRANSPORT_ID := "org.godot-audio-plugin-host.test-transport"
 
 var failures := 0
 var rate := 44100.0
@@ -29,6 +30,7 @@ func _ready() -> void:
 		await _test_midi_dialect(path)
 		await _test_pause(path)
 		await _test_two_channels(path)
+		await _test_transport(path)
 	print("INSTRUMENT %s" % ("OK" if failures == 0 else "FAILED (%d)" % failures))
 	get_tree().quit(1 if failures else 0)
 
@@ -169,4 +171,36 @@ func _test_two_channels(path: String) -> void:
 	midi.note_on(11, 38, 127, 0.5, at)
 	var steps := _steps(await _collect(r.cap, 1.2))
 	_check(steps.size() == 2 and is_equal_approx(steps[0][1], 0.5), "channels 10 and 11, same instrument, same sample: 0.5 (%s)" % str(steps))
+	await _unrig(r)
+
+
+# The plugin follows the driver's transport (the transport test plugin plays back what it is told:
+# left = song position x 0.001, right = tempo x 0.001 while playing). A loop over beats 1 to 2 at
+# 120 bpm: the position rises evenly, jumps back to 1 exactly a beat (22050 samples) apart, and
+# after a pause stands still with the tempo gone.
+func _test_transport(path: String) -> void:
+	var r := await _rig(path, TRANSPORT_ID, "Inst_Transport")
+	var midi: MidiDriver = r.midi
+	midi.set_channel_target(1, r.inst)
+	midi.bpm = 120
+	midi.set_loop(1.0, 2.0)
+	midi.play()
+	var frames := await _collect(r.cap, 2.2)
+	var drops: Array[int] = []
+	for i in range(1, frames.size()):
+		if frames[i].x < frames[i - 1].x - 0.0005: # back by more than half a beat
+			drops.append(i)
+	var beat := int(round(rate * 0.5))
+	_check(drops.size() >= 2, "the position folds back at the loop's end (%d jumps)" % drops.size())
+	if drops.size() >= 2:
+		_check(drops[1] - drops[0] == beat, "loop jumps exactly a beat apart: %d samples, want %d" % [drops[1] - drops[0], beat])
+		_check(absf(frames[drops[0]].x * 1000.0 - 1.0) < 1e-4, "each jump lands on beat 1 (%.5f)" % (frames[drops[0]].x * 1000.0))
+		var step := (frames[drops[0] + 100].x - frames[drops[0]].x) * 1000.0 / 100.0
+		_check(absf(step - 2.0 / rate) < 1e-7, "the position moves 2 beats a second, sample by sample")
+	var playing := frames[frames.size() - 1]
+	_check(absf(playing.y - 0.12) < 1e-6, "the plugin is told 120 bpm, playing (%.4f)" % playing.y)
+	midi.pause()
+	await get_tree().create_timer(0.3).timeout
+	var still := await _collect(r.cap, 0.3)
+	_check(still.size() > 0 and still[0].y == 0.0 and still[0].x == still[still.size() - 1].x, "paused: not playing, and the position stands still")
 	await _unrig(r)

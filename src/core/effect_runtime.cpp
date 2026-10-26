@@ -47,9 +47,12 @@ bool EffectRuntime::queue_param(uint32_t p_param_id, double p_value, int64_t p_d
 	return param_queue.push(ev);
 }
 
+// MIDI and TRANSPORT events (the caller sets the type; anything else counts as MIDI).
 bool EffectRuntime::queue_midi(const ParamEvent &p_midi) {
 	ParamEvent ev = p_midi;
-	ev.type = ParamEvent::MIDI;
+	if (ev.type != ParamEvent::TRANSPORT) {
+		ev.type = ParamEvent::MIDI;
+	}
 	ev.due_frame = -1;
 	return param_queue.push(ev);
 }
@@ -67,7 +70,8 @@ bool EffectRuntime::queue_drop(uint64_t p_source, int64_t p_from_us) {
 // has been placed by now (the queue keeps order), so nothing it should catch is still in transit.
 void EffectRuntime::apply_drop(const ParamEvent &p_drop) {
 	auto doomed = [&](const ParamEvent &e) {
-		return e.type == ParamEvent::MIDI && e.source == p_drop.source && e.due_us != 0 && e.due_us >= p_drop.due_us;
+		return (e.type == ParamEvent::MIDI || e.type == ParamEvent::TRANSPORT) && e.source == p_drop.source && e.due_us != 0 &&
+				e.due_us >= p_drop.due_us;
 	};
 	pending.erase(std::remove_if(pending.begin(), pending.end(), doomed), pending.end());
 	uint32_t keep = 0;
@@ -136,7 +140,8 @@ void EffectRuntime::gather_events(uint32_t p_frames) {
 			return 0;
 		}
 		if (ev.due_frame < 0) {
-			ev.due_frame = ev.type == ParamEvent::MIDI ? midi_frame_for(ev) : clock.absolute_frame_for(ev.due_us);
+			const bool from_driver = ev.type == ParamEvent::MIDI || ev.type == ParamEvent::TRANSPORT;
+			ev.due_frame = from_driver ? midi_frame_for(ev) : clock.absolute_frame_for(ev.due_us);
 		}
 		return ev.due_frame - block_start;
 	};

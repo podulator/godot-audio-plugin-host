@@ -286,6 +286,22 @@ void ClapInstrument::midi_stop(int64_t p_time_us, int64_t p_source, int p_mode) 
 	}
 }
 
+// The driver's transport, from p_time_us on, for the plugin (CLAP transport: tempo-synced
+// arpeggiators, LFOs and delays follow the song). Travels with the notes, on the same exact grid.
+void ClapInstrument::midi_transport(int64_t p_time_us, int64_t p_source, bool p_playing, double p_bpm, double p_song_beat, double p_loop_start, double p_loop_end) {
+	ensure_loaded();
+	gaph::ParamEvent ev;
+	ev.type = gaph::ParamEvent::TRANSPORT;
+	ev.midi_value = p_playing ? 1 : 0;
+	ev.value = p_bpm;
+	ev.transport_beat = p_song_beat;
+	ev.loop_start = p_loop_start;
+	ev.loop_end = p_loop_end;
+	ev.source = uint64_t(p_source);
+	ev.due_us = p_time_us;
+	hosted.queue_midi(ev);
+}
+
 void ClapInstrument::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_plugin_path", "path"), &ClapInstrument::set_plugin_path);
 	ClassDB::bind_method(D_METHOD("get_plugin_path"), &ClapInstrument::get_plugin_path);
@@ -300,6 +316,7 @@ void ClapInstrument::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_frames_processed"), &ClapInstrument::get_frames_processed);
 	ClassDB::bind_method(D_METHOD("midi_event", "time_us", "source", "kind", "channel", "index", "value", "note_id"), &ClapInstrument::midi_event);
 	ClassDB::bind_method(D_METHOD("midi_stop", "time_us", "source", "mode"), &ClapInstrument::midi_stop);
+	ClassDB::bind_method(D_METHOD("midi_transport", "time_us", "source", "playing", "bpm", "song_beat", "loop_start", "loop_end"), &ClapInstrument::midi_transport);
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "plugin_path", PROPERTY_HINT_FILE, "*.clap"), "set_plugin_path", "get_plugin_path");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "plugin_id", PROPERTY_HINT_PLACEHOLDER_TEXT, "first plugin in the file"), "set_plugin_id", "get_plugin_id");
 }

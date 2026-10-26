@@ -85,6 +85,7 @@ public:
 	// The MidiDriver target protocol.
 	void midi_event(int64_t p_time_us, int64_t p_source, int p_kind, int p_channel, int p_index, int64_t p_value, int64_t p_note_id);
 	void midi_stop(int64_t p_time_us, int64_t p_source, int p_mode);
+	void midi_transport(int64_t p_time_us, int64_t p_source, bool p_playing, double p_bpm, double p_song_beat, double p_loop_start, double p_loop_end);
 
 	Ref<AudioStreamPlayback> _instantiate_playback() const override;
 	String _get_stream_name() const override;

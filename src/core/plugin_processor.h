@@ -68,10 +68,14 @@ struct ParamEvent {
 	//          midi_index the key or controller; midi_value at MIDI 2.0 resolution; note_id).
 	//   DROP:  not for the plugin. "Drop every MIDI event from `source` due at or after due_us":
 	//          what an instrument does for MidiDriver's midi_stop (EffectRuntime handles it).
+	//   TRANSPORT: the driver's transport from due_us on (MidiDriver's midi_transport): playing in
+	//          midi_value (0 or 1), the tempo in `value`, the song position in transport_beat, and
+	//          the loop (loop_end <= loop_start: none). The plugin gets it as CLAP transport.
 	enum Type : uint8_t {
 		PARAM,
 		MIDI,
 		DROP,
+		TRANSPORT,
 	};
 	Type type = PARAM;
 	uint8_t midi_kind = 0;
@@ -80,6 +84,8 @@ struct ParamEvent {
 	uint32_t midi_value = 0;
 	int64_t note_id = -1;
 	uint64_t source = 0; // the sending MidiDriver's instance id
+	double transport_beat = 0.0;
+	double loop_start = 0.0, loop_end = 0.0;
 };
 
 // One block of audio, as handed to a plugin.
