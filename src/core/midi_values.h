@@ -24,6 +24,9 @@ enum class Kind : uint8_t {
 	POLY_PRESSURE, // index: the note
 	CHANNEL_PRESSURE,
 	PROGRAM, // value: the program number, 0-127 in both versions
+	// Internal, never sent by a driver: an instrument's "silence this note at once", for
+	// midi_stop's CUT (CLAP_EVENT_NOTE_CHOKE, or MIDI's All Sound Off where a plugin only speaks MIDI).
+	CHOKE,
 };
 
 // One message, as it travels inside: channel 1-16, values at MIDI 2.0 resolution.
@@ -106,6 +109,79 @@ inline uint32_t to_inside(Kind p_kind, int64_t p_value, int p_version, bool &r_o
 inline int64_t max_value(Kind p_kind, int p_version) {
 	const unsigned bits = p_version == 1 ? midi1_bits(p_kind) : midi2_bits(p_kind);
 	return p_kind == Kind::PITCH_BEND ? (int64_t(1) << (bits - 1)) - 1 : (int64_t(1) << bits) - 1;
+}
+
+// --- On the wire, for plugins that speak MIDI ----------------------------------------------------
+
+// A MIDI 1.0 message: status byte (kind and channel 0-15), then two data bytes, each 7 bits.
+// Values come at the inside resolution and are scaled down. CHOKE becomes All Sound Off (CC 120).
+inline void encode_midi1(Kind p_kind, uint8_t p_channel, uint16_t p_index, uint32_t p_value, uint8_t r_bytes[3]) {
+	const uint8_t ch = uint8_t((p_channel - 1) & 0x0F);
+	const uint8_t index = uint8_t(p_index & 0x7F);
+	const uint8_t v7 = uint8_t(scale_down(p_value, midi2_bits(p_kind), 7) & 0x7F);
+	switch (p_kind) {
+		case Kind::NOTE_ON:
+			r_bytes[0] = 0x90 | ch, r_bytes[1] = index, r_bytes[2] = v7 ? v7 : 1; // 0 would mean note-off
+			return;
+		case Kind::NOTE_OFF:
+			r_bytes[0] = 0x80 | ch, r_bytes[1] = index, r_bytes[2] = v7;
+			return;
+		case Kind::POLY_PRESSURE:
+			r_bytes[0] = 0xA0 | ch, r_bytes[1] = index, r_bytes[2] = v7;
+			return;
+		case Kind::CONTROL:
+			r_bytes[0] = 0xB0 | ch, r_bytes[1] = index, r_bytes[2] = v7;
+			return;
+		case Kind::PROGRAM:
+			r_bytes[0] = 0xC0 | ch, r_bytes[1] = uint8_t(p_value & 0x7F), r_bytes[2] = 0;
+			return;
+		case Kind::CHANNEL_PRESSURE:
+			r_bytes[0] = 0xD0 | ch, r_bytes[1] = v7, r_bytes[2] = 0;
+			return;
+		case Kind::PITCH_BEND: {
+			const uint32_t v14 = scale_down(p_value, 32, 14); // LSB first, then MSB, 7 bits each
+			r_bytes[0] = 0xE0 | ch, r_bytes[1] = uint8_t(v14 & 0x7F), r_bytes[2] = uint8_t((v14 >> 7) & 0x7F);
+			return;
+		}
+		case Kind::CHOKE:
+			r_bytes[0] = 0xB0 | ch, r_bytes[1] = 120, r_bytes[2] = 0;
+			return;
+	}
+}
+
+// A MIDI 2.0 channel voice message as a Universal MIDI Packet (M2-104-UM): message type 4, two
+// 32-bit words. Word 0: type, group (0), status, channel, then two bytes (note or controller
+// number, and for notes an attribute type, 0 for none); word 1: the value at full resolution.
+inline void encode_midi2(Kind p_kind, uint8_t p_channel, uint16_t p_index, uint32_t p_value, uint32_t r_words[2]) {
+	const uint32_t ch = uint32_t((p_channel - 1) & 0x0F);
+	const uint32_t index = uint32_t(p_index & 0x7F);
+	auto head = [&](uint32_t p_status, uint32_t p_byte3) { return (0x4u << 28) | (p_status << 20) | (ch << 16) | (p_byte3 << 8); };
+	switch (p_kind) {
+		case Kind::NOTE_ON:
+			r_words[0] = head(0x9, index), r_words[1] = p_value << 16; // velocity: the upper 16 bits
+			return;
+		case Kind::NOTE_OFF:
+			r_words[0] = head(0x8, index), r_words[1] = p_value << 16;
+			return;
+		case Kind::POLY_PRESSURE:
+			r_words[0] = head(0xA, index), r_words[1] = p_value;
+			return;
+		case Kind::CONTROL:
+			r_words[0] = head(0xB, index), r_words[1] = p_value;
+			return;
+		case Kind::PROGRAM:
+			r_words[0] = head(0xC, 0), r_words[1] = (p_value & 0x7F) << 24; // no bank: option flags 0
+			return;
+		case Kind::CHANNEL_PRESSURE:
+			r_words[0] = head(0xD, 0), r_words[1] = p_value;
+			return;
+		case Kind::PITCH_BEND:
+			r_words[0] = head(0xE, 0), r_words[1] = p_value;
+			return;
+		case Kind::CHOKE:
+			r_words[0] = head(0xB, 120), r_words[1] = 0;
+			return;
+	}
 }
 
 } // namespace gaph::midi

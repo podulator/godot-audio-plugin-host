@@ -214,8 +214,31 @@ static void test_loop() {
 	}
 }
 
+// The bytes and words plugins receive, as the MIDI 1.0 and 2.0 specifications define them.
+static void test_wire_encoding() {
+	uint8_t b[3];
+	encode_midi1(Kind::NOTE_ON, 1, 60, 0xFFFF, b);
+	CHECK(b[0] == 0x90 && b[1] == 60 && b[2] == 127);
+	encode_midi1(Kind::NOTE_OFF, 10, 36, 0x8000, b);
+	CHECK(b[0] == 0x89 && b[1] == 36 && b[2] == 64);
+	encode_midi1(Kind::PITCH_BEND, 1, 0, 0x80000000u, b);
+	CHECK(b[0] == 0xE0 && b[1] == 0x00 && b[2] == 0x40); // the centre: LSB 0, MSB 64
+	encode_midi1(Kind::PITCH_BEND, 16, 0, 0xFFFFFFFFu, b);
+	CHECK(b[0] == 0xEF && b[1] == 0x7F && b[2] == 0x7F);
+	encode_midi1(Kind::CONTROL, 1, 7, scale_up(100, 7, 32), b);
+	CHECK(b[0] == 0xB0 && b[1] == 7 && b[2] == 100);
+	encode_midi1(Kind::CHOKE, 3, 60, 0, b);
+	CHECK(b[0] == 0xB2 && b[1] == 120 && b[2] == 0); // All Sound Off
+	uint32_t w[2];
+	encode_midi2(Kind::NOTE_ON, 1, 60, 0xFFFF, w);
+	CHECK(w[0] == 0x40903C00u && w[1] == 0xFFFF0000u);
+	encode_midi2(Kind::CONTROL, 2, 74, 0x80000000u, w);
+	CHECK(w[0] == 0x40B14A00u && w[1] == 0x80000000u);
+}
+
 int main() {
 	test_values();
+	test_wire_encoding();
 	test_grid_and_length();
 	test_pause_resume();
 	test_stop_and_seek();

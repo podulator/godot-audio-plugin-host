@@ -382,6 +382,8 @@ private:
 				break;
 			case Kind::POLY_PRESSURE:
 				break; // belongs to one note, which pause ends: nothing to chase
+			case Kind::CHOKE:
+				break; // never sent by a driver (instruments use it for midi_stop's CUT)
 		}
 	}
 
