@@ -28,6 +28,7 @@
 // knob maps it internally. So min_value = 0 and max_value = 1 for every ParamInfo, and the
 // plugin's text (getParamStringByValue) is the only way to show real units.
 
+#include "core/midi_target.h"
 #include "core/plugin_processor.h"
 #include "core/rt_queue.h"
 #include "core/run_loop.h"
@@ -41,6 +42,7 @@
 #include "pluginterfaces/vst/ivstmessage.h"
 #include "pluginterfaces/vst/ivstprocesscontext.h"
 #include "public.sdk/source/vst/hosting/connectionproxy.h"
+#include "public.sdk/source/vst/hosting/eventlist.h"
 #include "public.sdk/source/vst/hosting/parameterchanges.h"
 
 #include <atomic>
@@ -59,9 +61,11 @@ struct Vst3BusInfo {
 
 class Vst3Processor : public PluginProcessor {
 public:
-	// p_class_id: the class's 16-byte id as 32 hex characters, or empty for the first effect.
+	// p_class_id: the class's 16-byte id as 32 hex characters, or empty for the first effect (the
+	// first instrument, with p_instrument: then the first event input bus is switched on, and
+	// MIDI in AudioBlock::param_events is played, see INSTRUMENTS below).
 	static std::unique_ptr<Vst3Processor> create(VST3::Hosting::Module::Ptr p_module, const std::string &p_class_id,
-			double p_sample_rate, uint32_t p_max_frames, bool p_activate, std::string &r_error);
+			double p_sample_rate, uint32_t p_max_frames, bool p_activate, std::string &r_error, bool p_instrument = false);
 
 	~Vst3Processor() override;
 
@@ -183,6 +187,26 @@ private:
 	Steinberg::Vst::ParameterChanges input_changes;
 	Steinberg::Vst::ParameterChanges output_changes;
 	Steinberg::Vst::ProcessContext context = {};
+
+	// INSTRUMENTS (create(..., p_instrument)). VST3 has note events of its own (on, off, poly
+	// pressure), sent in an event list on the first event input bus. It has NO controller events:
+	// a plugin says which of its parameters each MIDI controller drives (IMidiMapping), and the
+	// host turns a controller into that parameter's change. Asking is a main-thread call, so the
+	// answers are read into `midi_map` when the plugin starts, and the audio thread only looks them
+	// up: per channel, controllers 0-127, then kAfterTouch (128, channel pressure), kPitchBend
+	// (129) and kCtrlProgramChange (130); kNoParamId where the plugin maps nothing. The transport
+	// goes in the ProcessContext, which VST3 has once per block: a loop jump inside a block reaches
+	// the plugin at the next block's start (CLAP gets it on its sample, as a transport event).
+	bool instrument = false;
+	bool event_bus = false; // the plugin has an event input bus, now switched on
+	Steinberg::Vst::EventList in_events{ 512 };
+	static constexpr int MIDI_MAP_SIZE = 131;
+	Steinberg::Vst::ParamID midi_map[16][MIDI_MAP_SIZE];
+	Steinberg::int32 program_steps[16] = {}; // the program parameter's step count, per channel
+	void read_midi_map();
+	void play_midi(const ParamEvent &p_event, Steinberg::int32 p_offset);
+	gaph::midi::TransportFollower transport_state;
+	void fill_context();
 
 	// Plugin-made parameter changes reach us two ways: from process() (audio thread, lock-free
 	// queue) and from the controller via performEdit (main thread, or any thread in some

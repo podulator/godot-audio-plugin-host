@@ -1,6 +1,5 @@
 #include "clap_instrument.h"
 
-#include "core/midi_values.h"
 #include "godot_common/plugin_paths.h"
 
 #include <godot_cpp/classes/audio_server.hpp>
@@ -9,30 +8,20 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
-#include <algorithm>
-#include <cstring>
-
 namespace godot {
 
 using gaph_godot::to_std;
-using gaph::midi::Kind;
 
 // --- ClapInstrumentPlayback ------------------------------------------------------------------
+// The sound itself is gaph_godot::InstrumentVoice (godot_common/instrument_common.h).
 
-// MAIN THREAD, before Godot adds the playback to the mix, so no lock is needed to hand the runtime
-// a plugin instance (HostedEffect::attach, which gives it a spare one if there is one).
 void ClapInstrumentPlayback::setup(const Ref<ClapInstrument> &p_instrument) {
 	instrument = p_instrument;
-	runtime.set_sample_rate(AudioServer::get_singleton()->get_mix_rate());
-	silence.assign(size_t(gaph::EffectRuntime::MAX_BLOCK) * 2, 0.0f);
-	instrument->get_hosted().attach(runtime);
+	voice.setup(instrument->get_hosted());
 }
 
-// MAIN THREAD, after Godot has taken the playback out of the mix (see the header).
 ClapInstrumentPlayback::~ClapInstrumentPlayback() {
-	if (instrument.is_valid()) {
-		instrument->get_hosted().detach(runtime);
-	}
+	voice.detach();
 }
 
 void ClapInstrumentPlayback::_start(double) {
@@ -47,17 +36,8 @@ bool ClapInstrumentPlayback::_is_playing() const {
 	return playing;
 }
 
-// AUDIO THREAD. The plugin's output for p_frames frames, in slices of at most MAX_BLOCK (Godot asks
-// for 512 at a time; the loop is insurance). Silence goes in: an instrument has no audio input.
 int32_t ClapInstrumentPlayback::_mix(AudioFrame *p_buffer, float, int32_t p_frames) {
-	float *out = reinterpret_cast<float *>(p_buffer);
-	int32_t done = 0;
-	while (done < p_frames) {
-		const uint32_t n = uint32_t(std::min<int32_t>(p_frames - done, int32_t(gaph::EffectRuntime::MAX_BLOCK)));
-		runtime.process(silence.data(), out + size_t(done) * 2, n);
-		done += int32_t(n);
-	}
-	return p_frames;
+	return voice.mix(p_buffer, p_frames);
 }
 
 // --- ClapInstrument: setup and loading (as ClapPluginEffect does it) ---------------------------
@@ -187,7 +167,7 @@ void ClapInstrument::on_process_frame() {
 	if (!err.empty()) {
 		UtilityFunctions::push_error("ClapInstrument: ", String::utf8(err.c_str()));
 	}
-	notes.prune(gaph::host_time_us() - 1000000); // a second's margin: the book stays small
+	input.prune();
 }
 
 // --- Playing ----------------------------------------------------------------------------------
@@ -280,65 +260,21 @@ bool ClapInstrument::is_editor_open() const {
 	return editor_window.is_open();
 }
 
-// --- MIDI in ----------------------------------------------------------------------------------
-
-void ClapInstrument::queue(int p_kind, int p_channel, int p_index, uint32_t p_value, int64_t p_note_id, uint64_t p_source, int64_t p_time_us) {
-	gaph::ParamEvent ev;
-	ev.type = gaph::ParamEvent::MIDI;
-	ev.midi_kind = uint8_t(p_kind);
-	ev.midi_channel = uint8_t(p_channel);
-	ev.midi_index = uint16_t(p_index);
-	ev.midi_value = p_value;
-	ev.note_id = p_note_id;
-	ev.source = p_source;
-	ev.due_us = p_time_us;
-	hosted.queue_midi(ev);
-}
+// --- MIDI in: the MidiDriver target methods (godot_common/instrument_common.h) ---------------
 
 void ClapInstrument::midi_event(int64_t p_time_us, int64_t p_source, int p_kind, int p_channel, int p_index, int64_t p_value, int64_t p_note_id) {
-	ERR_FAIL_COND_MSG(p_kind < int(Kind::NOTE_ON) || p_kind > int(Kind::PROGRAM), vformat("ClapInstrument: unknown MIDI event kind %d.", p_kind));
-	ERR_FAIL_COND_MSG(p_channel < 1 || p_channel > 16, vformat("ClapInstrument: channel %d is not 1-16.", p_channel));
 	ensure_loaded();
-	const uint64_t source = uint64_t(p_source);
-	if (p_kind == int(Kind::NOTE_ON)) {
-		notes.note_on(source, p_note_id, uint8_t(p_channel), uint16_t(p_index), p_time_us);
-	} else if (p_kind == int(Kind::NOTE_OFF)) {
-		notes.note_off(source, p_note_id, uint8_t(p_channel), uint16_t(p_index), p_time_us);
-	}
-	queue(p_kind, p_channel, p_index, uint32_t(p_value), p_note_id, source, p_time_us);
+	input.event(hosted, p_time_us, p_source, p_kind, p_channel, p_index, p_value, p_note_id);
 }
 
-// See the header: the audio side drops this source's events from p_time_us on, and the notes still
-// sounding then are ended here, at p_time_us: a note-off lets their tails ring (RELEASE), a choke
-// silences them (CUT). WITHDRAW leaves sounding notes alone.
 void ClapInstrument::midi_stop(int64_t p_time_us, int64_t p_source, int p_mode) {
 	ensure_loaded();
-	const uint64_t source = uint64_t(p_source);
-	hosted.queue_drop(source, p_time_us);
-	if (p_mode == 0) {
-		notes.withdraw(source, p_time_us);
-		return;
-	}
-	const bool cut = p_mode == 2;
-	for (const gaph::midi::NoteBook::Sounding &n : notes.stop(source, p_time_us)) {
-		queue(int(cut ? Kind::CHOKE : Kind::NOTE_OFF), n.channel, n.key, cut ? 0u : 0x8000u, n.note_id, source, p_time_us);
-	}
+	input.stop(hosted, p_time_us, p_source, p_mode);
 }
 
-// The driver's transport, from p_time_us on, for the plugin (CLAP transport: tempo-synced
-// arpeggiators, LFOs and delays follow the song). Travels with the notes, on the same exact grid.
 void ClapInstrument::midi_transport(int64_t p_time_us, int64_t p_source, bool p_playing, double p_bpm, double p_song_beat, double p_loop_start, double p_loop_end) {
 	ensure_loaded();
-	gaph::ParamEvent ev;
-	ev.type = gaph::ParamEvent::TRANSPORT;
-	ev.midi_value = p_playing ? 1 : 0;
-	ev.value = p_bpm;
-	ev.transport_beat = p_song_beat;
-	ev.loop_start = p_loop_start;
-	ev.loop_end = p_loop_end;
-	ev.source = uint64_t(p_source);
-	ev.due_us = p_time_us;
-	hosted.queue_midi(ev);
+	input.transport(hosted, p_time_us, p_source, p_playing, p_bpm, p_song_beat, p_loop_start, p_loop_end);
 }
 
 void ClapInstrument::_bind_methods() {

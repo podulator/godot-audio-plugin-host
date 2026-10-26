@@ -31,6 +31,13 @@ func _ready() -> void:
 		await _test_pause(path)
 		await _test_two_channels(path)
 		await _test_transport(path)
+	var vst3_notes := TestUtilScript.own_plugin("gaph_test_vst3_instrument.vst3")
+	var vst3_transport := TestUtilScript.own_plugin("gaph_test_vst3_transport.vst3")
+	if not DirAccess.dir_exists_absolute(vst3_notes) or not DirAccess.dir_exists_absolute(vst3_transport):
+		print("SKIP  VST3 test instruments not built in " + vst3_notes.get_base_dir())
+	else:
+		await _test_vst3_notes(vst3_notes)
+		await _test_vst3_transport(vst3_transport)
 	print("INSTRUMENT %s" % ("OK" if failures == 0 else "FAILED (%d)" % failures))
 	get_tree().quit(1 if failures else 0)
 
@@ -39,10 +46,13 @@ func _ready() -> void:
 # runtime's clock given time to settle (see platform_test.gd: a stream under ~1 s old can still
 # move its anchor).
 func _rig(path: String, id: String, bus_name: String) -> Dictionary:
-	var inst := ClapInstrument.new()
+	# A .vst3 path makes a Vst3Instrument (its bundle's first class: id stays empty), else a CLAP one.
+	var vst3 := path.get_extension() == "vst3"
+	var inst: AudioStream = Vst3Instrument.new() if vst3 else ClapInstrument.new()
 	inst.plugin_path = path
-	inst.plugin_id = id
-	_check(inst.is_plugin_loaded(), "%s loads (%s)" % [id.get_slice(".", 2), inst.get_load_error()])
+	if not vst3:
+		inst.plugin_id = id
+	_check(inst.is_plugin_loaded(), "%s loads (%s)" % [path.get_file() if vst3 else id.get_slice(".", 2), inst.get_load_error()])
 	var bus := AudioServer.bus_count
 	AudioServer.add_bus(bus)
 	AudioServer.set_bus_name(bus, bus_name)
@@ -203,4 +213,52 @@ func _test_transport(path: String) -> void:
 	await get_tree().create_timer(0.3).timeout
 	var still := await _collect(r.cap, 0.3)
 	_check(still.size() > 0 and still[0].y == 0.0 and still[0].x == still[still.size() - 1].x, "paused: not playing, and the position stands still")
+	await _unrig(r)
+
+
+# VST3: notes as VST3 events on the exact sample (half a beat long, a beat apart), and controller
+# 7 through the plugin's IMidiMapping to its Volume parameter. VST3 gets normalised values, so
+# 64 arrives as exactly the MIDI 2.0 centre, 0.5 (CLAP's MIDI 1.0 path keeps 64/127).
+func _test_vst3_notes(path: String) -> void:
+	var r := await _rig(path, "", "Inst_Vst3")
+	var midi: MidiDriver = r.midi
+	midi.set_channel_target(1, r.inst)
+	midi.bpm = 120
+	midi.play()
+	midi.note_on(1, 60, 127, 0.5, midi.at_beat(1.0))
+	midi.control_change(1, 7, 64, midi.at_beat(1.5))
+	midi.note_on(1, 64, 127, 0.5, midi.at_beat(2.0))
+	var steps := _steps(await _collect(r.cap, 1.9))
+	var beat := int(round(rate * 0.5))
+	_check(steps.size() == 4, "VST3: two notes, four steps (%d: %s)" % [steps.size(), str(steps.slice(0, 6))])
+	if steps.size() == 4:
+		_check(is_equal_approx(steps[0][1], 0.25), "VST3: velocity 127 sounds at 0.25 (%s)" % steps[0][1])
+		_check(steps[1][0] - steps[0][0] == beat / 2, "VST3: a note lasts exactly half a beat: %d samples, want %d" % [steps[1][0] - steps[0][0], beat / 2])
+		_check(steps[2][0] - steps[0][0] == beat, "VST3: the notes start exactly a beat apart: %d samples, want %d" % [steps[2][0] - steps[0][0], beat])
+		_check(absf(steps[2][1] - 0.125) < 1e-6, "VST3: CC 7 at 64 reaches Volume through IMidiMapping: 0.25 x 0.5 (%f)" % steps[2][1])
+	await _unrig(r)
+
+
+# VST3's transport is the ProcessContext, once per block: the plugin follows tempo and position,
+# but a loop jump reaches it at the next block's start (CLAP gets it on its sample). Checked to
+# within a block (512 samples), and the tempo exactly.
+func _test_vst3_transport(path: String) -> void:
+	var r := await _rig(path, "", "Inst_Vst3_Transport")
+	var midi: MidiDriver = r.midi
+	midi.set_channel_target(1, r.inst)
+	midi.bpm = 120
+	midi.set_loop(1.0, 2.0)
+	midi.play()
+	var frames := await _collect(r.cap, 2.2)
+	var drops: Array[int] = []
+	for i in range(1, frames.size()):
+		if frames[i].x < frames[i - 1].x - 0.0005:
+			drops.append(i)
+	var beat := int(round(rate * 0.5))
+	_check(drops.size() >= 2, "VST3: the position folds back at the loop's end (%d jumps)" % drops.size())
+	if drops.size() >= 2:
+		_check(abs(drops[1] - drops[0] - beat) <= 512, "VST3: loop jumps a beat apart, within a block: %d samples, want %d" % [drops[1] - drops[0], beat])
+		var landed := frames[drops[0]].x * 1000.0
+		_check(landed >= 1.0 and landed < 1.0 + 512.0 / rate * 2.0 + 1e-6, "VST3: each jump lands within a block after beat 1 (%.5f)" % landed)
+	_check(absf(frames[frames.size() - 1].y - 0.12) < 1e-6, "VST3: the plugin is told 120 bpm, playing (%.4f)" % frames[frames.size() - 1].y)
 	await _unrig(r)

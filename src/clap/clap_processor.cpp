@@ -332,18 +332,10 @@ bool ClapProcessor::process(const AudioBlock &p_block) {
 		if (src.type == ParamEvent::TRANSPORT) {
 			// A new snapshot from the driver, true from this sample on; the plugin hears it as a
 			// transport event right here, and in proc.transport from the next block.
-			TransportState &ts = transport_state;
-			ts.known = true;
-			ts.playing = src.midi_value != 0;
-			ts.bpm = src.value > 0 ? src.value : 120.0;
-			ts.beat = src.transport_beat;
-			ts.looping = src.loop_end > src.loop_start;
-			ts.loop_start = src.loop_start;
-			ts.loop_end = src.loop_end;
-			ts.at = steady_time + int64_t(time);
+			transport_state.take(src.midi_value != 0, src.value, src.transport_beat, src.loop_start, src.loop_end, steady_time + int64_t(time));
 			InEvent &out = in_event_storage[in_event_count++];
 			out = {};
-			fill_transport(out.transport, ts.at);
+			fill_transport(out.transport, transport_state.at);
 			out.transport.header.time = time;
 			continue;
 		}
@@ -465,8 +457,8 @@ void ClapProcessor::translate_midi(const ParamEvent &p_src, uint32_t p_time, InE
 // The transport at steady time p_steady_time: the last snapshot, moved on by the time since, at its
 // tempo while playing. 4/4 is assumed (the driver has no time signature yet).
 void ClapProcessor::fill_transport(clap_event_transport_t &r_out, int64_t p_steady_time) const {
-	const TransportState &ts = transport_state;
-	const double beat = ts.playing ? ts.beat + double(p_steady_time - ts.at) / sample_rate * ts.bpm / 60.0 : ts.beat;
+	const gaph::midi::TransportFollower &ts = transport_state;
+	const double beat = ts.beat_at(p_steady_time, sample_rate);
 	auto beattime = [](double p_beats) { return clap_beattime(std::llround(p_beats * double(CLAP_BEATTIME_FACTOR))); };
 	r_out = {};
 	r_out.header.size = sizeof(clap_event_transport_t);

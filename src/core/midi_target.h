@@ -112,4 +112,31 @@ private:
 	std::vector<Entry> notes;
 };
 
+// TransportFollower: an instrument's idea of the driver's transport, on the AUDIO thread. The
+// driver sends a snapshot (playing, tempo, song position, loop) when anything changes; in between
+// the position is worked out here: the snapshot's position, moved on at its tempo while playing.
+// Both formats use it (CLAP transport info, VST3 ProcessContext), so they agree to the sample.
+struct TransportFollower {
+	bool known = false, playing = false, looping = false;
+	double bpm = 120.0, beat = 0.0, loop_start = 0.0, loop_end = 0.0;
+	int64_t at = 0; // the plugin's sample count at which `beat` held
+
+	// A snapshot, holding from sample p_at on.
+	void take(bool p_playing, double p_bpm, double p_beat, double p_loop_start, double p_loop_end, int64_t p_at) {
+		known = true;
+		playing = p_playing;
+		bpm = p_bpm > 0 ? p_bpm : 120.0;
+		beat = p_beat;
+		looping = p_loop_end > p_loop_start;
+		loop_start = p_loop_start;
+		loop_end = p_loop_end;
+		at = p_at;
+	}
+
+	// The song position at the plugin's sample p_sample, at p_rate samples a second.
+	double beat_at(int64_t p_sample, double p_rate) const {
+		return playing ? beat + double(p_sample - at) / p_rate * bpm / 60.0 : beat;
+	}
+};
+
 } // namespace gaph::midi

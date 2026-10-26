@@ -1,21 +1,23 @@
 @tool
 extends Node
-# A ClapInstrument in the real editor's inspector (via tests/editor_probe.sh) gets an "Open Plugin
-# Window" button at the top. No window opens: the button is only found, not pressed.
-# Environment: INSPECTORPROBE_PLUGIN, the test instrument's path.
+# A ClapInstrument and a Vst3Instrument in the real editor's inspector (via tests/editor_probe.sh)
+# get an "Open Plugin Window" button at the top. No window opens: the button is only found, not
+# pressed. Environment: INSPECTORPROBE_PLUGIN and INSPECTORPROBE_VST3, the test instruments.
 
 func _ready() -> void:
 	if not Engine.is_editor_hint():
 		return
 	await get_tree().process_frame
-	var inst := ClapInstrument.new()
-	inst.plugin_path = OS.get_environment("INSPECTORPROBE_PLUGIN")
-	EditorInterface.inspect_object(inst)
-	for i in 5:
-		await get_tree().process_frame
-	var found := _find_button(EditorInterface.get_inspector(), "Open Plugin Window")
-	print("INSPECTORPROBE button=%s loaded=%s" % [found != null, inst.is_plugin_loaded()])
-	EditorInterface.inspect_object(null)
+	# INSPECTORPROBE_PLUGIN for CLAP, INSPECTORPROBE_VST3 for VST3: the same button for both.
+	for pair in [["clap", ClapInstrument.new(), "INSPECTORPROBE_PLUGIN"], ["vst3", Vst3Instrument.new(), "INSPECTORPROBE_VST3"]]:
+		var inst: AudioStream = pair[1]
+		inst.plugin_path = OS.get_environment(pair[2])
+		EditorInterface.inspect_object(inst)
+		for i in 5:
+			await get_tree().process_frame
+		var found := _find_button(EditorInterface.get_inspector(), "Open Plugin Window")
+		print("INSPECTORPROBE %s button=%s loaded=%s" % [pair[0], found != null, inst.is_plugin_loaded()])
+		EditorInterface.inspect_object(null)
 	get_tree().quit()
 
 

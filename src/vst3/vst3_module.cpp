@@ -4,6 +4,7 @@
 #include "public.sdk/source/vst/moduleinfo/moduleinfoparser.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -108,6 +109,21 @@ static bool is_effect(const std::string &p_category, const std::vector<std::stri
 		fx = fx || sub == "Fx";
 	}
 	return !instrument || fx;
+}
+
+// An instrument: an audio module marked Instrument (whether or not also Fx).
+static bool is_instrument(const std::string &p_category, const std::vector<std::string> &p_subs) {
+	return p_category == kVstAudioEffectClass && std::find(p_subs.begin(), p_subs.end(), std::string("Instrument")) != p_subs.end();
+}
+
+std::vector<VST3::Hosting::ClassInfo> vst3_instrument_classes(const VST3::Hosting::Module::Ptr &p_module) {
+	std::vector<VST3::Hosting::ClassInfo> out;
+	for (const auto &c : p_module->getFactory().classInfos()) {
+		if (is_instrument(c.category(), c.subCategories())) {
+			out.push_back(c);
+		}
+	}
+	return out;
 }
 
 std::vector<VST3::Hosting::ClassInfo> vst3_effect_classes(const VST3::Hosting::Module::Ptr &p_module) {

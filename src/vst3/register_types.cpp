@@ -4,6 +4,7 @@
 #include "godot_common/scan_guard.h"
 #include "vst3_module.h"
 #include "vst3_editor_plugin.h"
+#include "vst3_instrument.h"
 #include "vst3_plugin_effect.h"
 #include "vst3_sidechain_send.h"
 
@@ -77,6 +78,7 @@ static void initialize_vst3_host(ModuleInitializationLevel p_level) {
 	// The EDITOR level runs only in the editor, after SCENE: the export step lives there.
 	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
 		GDREGISTER_INTERNAL_CLASS(Vst3ExportPlugin);
+		GDREGISTER_INTERNAL_CLASS(Vst3InstrumentInspector);
 		GDREGISTER_INTERNAL_CLASS(Vst3EditorPlugin);
 		EditorPlugins::add_by_type<Vst3EditorPlugin>();
 		return;
@@ -92,6 +94,8 @@ static void initialize_vst3_host(ModuleInitializationLevel p_level) {
 	GDREGISTER_VIRTUAL_CLASS(Vst3PluginEffect);
 	GDREGISTER_INTERNAL_CLASS(Vst3PluginEffectInstance);
 	GDREGISTER_CLASS(Vst3SidechainSend);
+	GDREGISTER_CLASS(Vst3Instrument);
+	GDREGISTER_INTERNAL_CLASS(Vst3InstrumentPlayback);
 	GDREGISTER_INTERNAL_CLASS(Vst3SidechainSendInstance);
 	register_menu_classes();
 }

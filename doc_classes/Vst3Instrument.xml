@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="Vst3Instrument" inherits="AudioStream" api_type="extension" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		A VST3 instrument plugin, played as an audio stream and fed by a [MidiDriver].
+	</brief_description>
+	<description>
+		The VST3 twin of [ClapInstrument]: plays a VST3 instrument through any [AudioStreamPlayer], [AudioStreamPlayer2D] or [AudioStreamPlayer3D], on any bus, as a [MidiDriver] target.
+		[codeblock]
+		var synth := Vst3Instrument.new()
+		synth.plugin_path = "Surge XT.vst3"
+		$Player.stream = synth
+		$Player.play()
+		midi.set_channel_target(1, synth)
+		[/codeblock]
+		Notes go to the plugin as VST3 note events, on the exact audio sample the driver planned them for. VST3 has no controller events: controllers, pitch bend, channel pressure and program change reach the parameters the plugin assigns to them (its MIDI mapping), and do nothing where it assigns none. The transport reaches the plugin once per audio block, so a loop jump inside a block is heard from the next block on (512 samples at most; [ClapInstrument] gets it on its sample).
+		One playback at a time, as for [ClapInstrument]. Saved plugin state is not there yet.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="close_editor">
+			<return type="void" />
+			<description>
+				Closes the plugin's window.
+			</description>
+		</method>
+		<method name="get_frames_processed">
+			<return type="int" />
+			<description>
+				Frames the plugin has produced so far, over all playbacks.
+			</description>
+		</method>
+		<method name="get_load_error">
+			<return type="String" />
+			<description>
+				Why the plugin did not load, or an empty string.
+			</description>
+		</method>
+		<method name="get_parameter">
+			<return type="float" />
+			<param index="0" name="id" type="int" />
+			<description>
+				Parameter [param id]'s current value.
+			</description>
+		</method>
+		<method name="get_parameters">
+			<return type="Dictionary[]" />
+			<description>
+				The plugin's parameters: [code]id[/code], [code]name[/code], [code]min[/code], [code]max[/code] and [code]default[/code] for each.
+			</description>
+		</method>
+		<method name="get_plugin_info">
+			<return type="Dictionary" />
+			<description>
+				The plugin's [code]id[/code], [code]name[/code], [code]vendor[/code] and [code]version[/code].
+			</description>
+		</method>
+		<method name="is_editor_open" qualifiers="const">
+			<return type="bool" />
+			<description>
+				[code]true[/code] while the plugin's window is open.
+			</description>
+		</method>
+		<method name="is_plugin_loaded">
+			<return type="bool" />
+			<description>
+				[code]true[/code] once the plugin has loaded.
+			</description>
+		</method>
+		<method name="midi_event">
+			<return type="void" />
+			<param index="0" name="time_us" type="int" />
+			<param index="1" name="source" type="int" />
+			<param index="2" name="kind" type="int" />
+			<param index="3" name="channel" type="int" />
+			<param index="4" name="index" type="int" />
+			<param index="5" name="value" type="int" />
+			<param index="6" name="note_id" type="int" />
+			<description>
+				A [MidiDriver] target method: the driver calls it with each event (see [MidiDriver] for the arguments).
+			</description>
+		</method>
+		<method name="midi_stop">
+			<return type="void" />
+			<param index="0" name="time_us" type="int" />
+			<param index="1" name="source" type="int" />
+			<param index="2" name="mode" type="int" />
+			<description>
+				A [MidiDriver] target method: drops what [param source] sent for [param time_us] onwards, and ends its sounding notes there as [param mode] says (see [enum MidiDriver.StopMode]).
+			</description>
+		</method>
+		<method name="midi_transport">
+			<return type="void" />
+			<param index="0" name="time_us" type="int" />
+			<param index="1" name="source" type="int" />
+			<param index="2" name="playing" type="bool" />
+			<param index="3" name="bpm" type="float" />
+			<param index="4" name="song_beat" type="float" />
+			<param index="5" name="loop_start" type="float" />
+			<param index="6" name="loop_end" type="float" />
+			<description>
+				A [MidiDriver] target method: the driver's transport, which the plugin receives in its process context (tempo, position, loop, playing), once per audio block.
+			</description>
+		</method>
+		<method name="open_editor">
+			<return type="bool" />
+			<description>
+				Opens the plugin's own window, as for [Vst3PluginEffect] (editor only). The inspector's [b]Open Plugin Window[/b] button does the same.
+			</description>
+		</method>
+		<method name="set_parameter">
+			<return type="void" />
+			<param index="0" name="id" type="int" />
+			<param index="1" name="value" type="float" />
+			<description>
+				Sets parameter [param id] to [param value], in the plugin's own range.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="plugin_id" type="String" setter="set_plugin_id" getter="get_plugin_id" default="&quot;&quot;">
+			Which instrument of a bundle holding several, as 32 hex digits; empty for the first.
+		</member>
+		<member name="plugin_path" type="String" setter="set_plugin_path" getter="get_plugin_path" default="&quot;&quot;">
+			The [code].vst3[/code] bundle: relative to a plugin folder, [code]res://[/code] or absolute, as for [Vst3PluginEffect].
+		</member>
+	</members>
+	<signals>
+		<signal name="editor_closed">
+			<description>
+				Emitted when the plugin's window closes: by the user, by the plugin, or by [method close_editor].
+			</description>
+		</signal>
+	</signals>
+</class>

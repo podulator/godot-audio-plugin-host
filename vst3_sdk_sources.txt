@@ -7,6 +7,8 @@ public.sdk/source/vst/hosting/module_linux.cpp
 public.sdk/source/vst/hosting/hostclasses.cpp
 public.sdk/source/vst/hosting/pluginterfacesupport.cpp
 public.sdk/source/vst/hosting/parameterchanges.cpp
+# Notes for instruments (Vst3Instrument): the event list a process() call hands over.
+public.sdk/source/vst/hosting/eventlist.cpp
 public.sdk/source/vst/hosting/connectionproxy.cpp
 public.sdk/source/vst/utility/stringconvert.cpp
 public.sdk/source/common/commonstringconvert.cpp

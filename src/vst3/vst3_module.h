@@ -41,6 +41,8 @@ std::vector<std::string> vst3_find_bundles(const std::vector<std::string> &p_dir
 
 // The audio-effect classes a module offers. Instruments and anything else are skipped.
 std::vector<VST3::Hosting::ClassInfo> vst3_effect_classes(const VST3::Hosting::Module::Ptr &p_module);
+// The module's instrument classes (subcategory Instrument), for Vst3Instrument.
+std::vector<VST3::Hosting::ClassInfo> vst3_instrument_classes(const VST3::Hosting::Module::Ptr &p_module);
 
 // One effect class, as a scan reports it.
 struct Vst3EffectEntry {

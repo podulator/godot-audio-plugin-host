@@ -30,8 +30,8 @@
 #include "clap_processor.h"
 #include "core/effect_runtime.h"
 #include "core/hosted_effect.h"
-#include "core/midi_target.h"
 #include "godot_common/editor_window.h"
+#include "godot_common/instrument_common.h"
 
 #include <godot_cpp/classes/audio_stream.hpp>
 #include <godot_cpp/classes/audio_stream_playback.hpp>
@@ -56,15 +56,12 @@ public:
 	double _get_playback_position() const override { return 0.0; }
 	int32_t _mix(AudioFrame *p_buffer, float p_rate_scale, int32_t p_frames) override;
 
-	uint64_t get_frames_processed() const { return runtime.get_frames_processed(); }
-
 protected:
 	static void _bind_methods() {}
 
 private:
 	Ref<ClapInstrument> instrument;
-	gaph::EffectRuntime runtime;
-	std::vector<float> silence; // the plugin's (unused) input: zeros, allocated once
+	gaph_godot::InstrumentVoice voice;
 	bool playing = false;
 };
 
@@ -113,7 +110,6 @@ private:
 	void load_plugin();
 	void connect_idle();
 	void on_process_frame();
-	void queue(int p_kind, int p_channel, int p_index, uint32_t p_value, int64_t p_note_id, uint64_t p_source, int64_t p_time_us);
 
 	String plugin_path;
 	String plugin_id;
@@ -125,7 +121,7 @@ private:
 	// mutable: Godot's _instantiate_playback() is const, but a new playback joins the instrument's
 	// running instances (HostedEffect's registry).
 	mutable gaph::HostedEffect hosted;
-	gaph::midi::NoteBook notes;
+	gaph_godot::InstrumentInput input;
 	gaph_godot::EditorWindow editor_window;
 };
 

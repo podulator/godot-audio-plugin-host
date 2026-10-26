@@ -183,3 +183,20 @@ if ARGUMENTS.get("test_plugin", "no") == "yes":
             "<key>CFBundlePackageType</key><string>BNDL</string>",
             "</dict></plist>",
         ], TEXTFILESUFFIX=""))
+    # The VST3 test instruments (tests/plugins/gaph_test_vst3_instrument.cpp): no GUI. Built twice,
+    # one class per bundle: the notes instrument, and with GAPH_TEST_TRANSPORT the transport one.
+    for name, defines in (("gaph_test_vst3_instrument", []), ("gaph_test_vst3_transport", ["GAPH_TEST_TRANSPORT"])):
+        inst_env = vst_env.Clone()
+        inst_env.Append(CPPDEFINES=defines)
+        inst_objs = sdk_objs + [inst_env.SharedObject("objs/vst3/" + name, "#../tests/plugins/gaph_test_vst3_instrument.cpp")]
+        Default(plugin_binary(inst_env, binary(out + "/" + name + ".vst3", name, "vst3"), inst_objs))
+        if plat == "macos":
+            Default(env.Textfile(out + "/" + name + ".vst3/Contents/Info.plist", [
+                '<?xml version="1.0" encoding="UTF-8"?>',
+                '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+                '<plist version="1.0"><dict>',
+                "<key>CFBundleExecutable</key><string>" + name + "</string>",
+                "<key>CFBundleIdentifier</key><string>org.godot-audio-plugin-host." + name.replace("_", "-") + "</string>",
+                "<key>CFBundlePackageType</key><string>BNDL</string>",
+                "</dict></plist>",
+            ], TEXTFILESUFFIX=""))

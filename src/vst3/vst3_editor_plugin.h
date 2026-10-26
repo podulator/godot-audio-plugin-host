@@ -7,12 +7,15 @@
 // project's VST3 plugins beside the exported game (godot_common/export_copy.h). Registered at
 // the EDITOR initialisation level, which never runs in an exported game.
 
+#include "vst3_instrument.h"
 #include "vst3_plugin_effect.h"
 #include "godot_common/effect_toggle.h"
 #include "godot_common/export_copy.h"
 
 #include <godot_cpp/classes/editor_export_platform.hpp>
 #include <godot_cpp/classes/editor_export_plugin.hpp>
+#include <godot_cpp/classes/button.hpp>
+#include <godot_cpp/classes/editor_inspector_plugin.hpp>
 #include <godot_cpp/classes/editor_plugin.hpp>
 
 namespace godot {
@@ -28,6 +31,24 @@ public:
 	}
 	void _export_file(const String &p_path, const String &, const PackedStringArray &) override {
 		gaph_godot::warn_unshipped_plugins("vst3", "Vst3PluginEffect", p_path, this);
+	}
+
+protected:
+	static void _bind_methods() {}
+};
+
+// The "Open Plugin Window" button at the top of a Vst3Instrument's inspector (see
+// ClapInstrumentInspector in clap_editor_plugin.h for why instruments need one).
+class Vst3InstrumentInspector : public EditorInspectorPlugin {
+	GDCLASS(Vst3InstrumentInspector, EditorInspectorPlugin);
+
+public:
+	bool _can_handle(Object *p_object) const override { return Object::cast_to<Vst3Instrument>(p_object) != nullptr; }
+	void _parse_begin(Object *p_object) override {
+		Button *open = memnew(Button);
+		open->set_text("Open Plugin Window");
+		open->connect("pressed", Callable(p_object, "open_editor"));
+		add_custom_control(open);
 	}
 
 protected:
@@ -54,10 +75,14 @@ public:
 	void _enter_tree() override {
 		exporter.instantiate();
 		add_export_plugin(exporter);
+		instrument_inspector.instantiate();
+		add_inspector_plugin(instrument_inspector);
 	}
 	void _exit_tree() override {
 		remove_export_plugin(exporter);
 		exporter.unref();
+		remove_inspector_plugin(instrument_inspector);
+		instrument_inspector.unref();
 	}
 
 protected:
@@ -79,6 +104,7 @@ private:
 	}
 
 	Ref<Vst3ExportPlugin> exporter;
+	Ref<Vst3InstrumentInspector> instrument_inspector;
 	Ref<Vst3PluginEffect> pending;
 	std::vector<bool> pending_enabled;
 };

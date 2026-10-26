@@ -1,13 +1,17 @@
 #include "vst3_processor.h"
 #include "core/native_window.h"
 #include "core/channel_map.h"
+#include "core/midi_values.h"
 #include "pluginterfaces/gui/iplugviewcontentscalesupport.h"
 
 #include "public.sdk/source/common/memorystream.h"
 #include "public.sdk/source/vst/utility/stringconvert.h"
+#include "pluginterfaces/vst/ivstevents.h"
+#include "pluginterfaces/vst/ivstmidicontrollers.h"
 #include "pluginterfaces/vst/ivstprocesscontext.h"
 #include "pluginterfaces/vst/vstspeaker.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -17,7 +21,7 @@ using namespace Steinberg;
 using namespace Steinberg::Vst;
 
 std::unique_ptr<Vst3Processor> Vst3Processor::create(VST3::Hosting::Module::Ptr p_module, const std::string &p_class_id,
-		double p_sample_rate, uint32_t p_max_frames, bool p_activate, std::string &r_error) {
+		double p_sample_rate, uint32_t p_max_frames, bool p_activate, std::string &r_error, bool p_instrument) {
 	if (!p_module) {
 		r_error = "no module";
 		return nullptr;
@@ -29,9 +33,10 @@ std::unique_ptr<Vst3Processor> Vst3Processor::create(VST3::Hosting::Module::Ptr 
 	p->handler.owner = p.get();
 	p->frame.owner = p.get();
 
-	// Choose the class: the requested one, or the first audio effect.
+	// Choose the class: the requested one, or the first audio effect (instrument).
+	p->instrument = p_instrument;
 	bool found = false;
-	for (const auto &c : vst3_effect_classes(p->module)) {
+	for (const auto &c : p_instrument ? vst3_instrument_classes(p->module) : vst3_effect_classes(p->module)) {
 		if (p_class_id.empty() || c.ID().toString() == p_class_id) {
 			p->class_info = c;
 			found = true;
@@ -39,7 +44,8 @@ std::unique_ptr<Vst3Processor> Vst3Processor::create(VST3::Hosting::Module::Ptr 
 		}
 	}
 	if (!found) {
-		r_error = p_class_id.empty() ? "module contains no audio effect" : "no effect class with id " + p_class_id;
+		const char *what = p_instrument ? "instrument" : "effect";
+		r_error = p_class_id.empty() ? std::string("module contains no ") + what : std::string("no ") + what + " class with id " + p_class_id;
 		return nullptr;
 	}
 
@@ -214,10 +220,14 @@ bool Vst3Processor::setup_buses(std::string &r_error) {
 	allocate(kOutput, output_info, outputs, output_buffers);
 
 	// Event buses carry MIDI-like notes. An effect on a Godot bus never gets any, so they are
-	// switched off, and process() can pass no event lists at all.
+	// switched off, and process() can pass no event lists at all. An instrument gets its first
+	// event input bus switched on: the notes arrive there.
+	event_bus = false;
 	for (BusDirection dir : { kInput, kOutput }) {
 		for (int32 i = 0; i < component->getBusCount(kEvent, dir); i++) {
-			component->activateBus(kEvent, dir, i, false);
+			const bool on = instrument && dir == kInput && i == 0;
+			component->activateBus(kEvent, dir, i, on);
+			event_bus = event_bus || on;
 		}
 	}
 	if (main_output < 0) {
@@ -253,6 +263,10 @@ bool Vst3Processor::start(std::string &r_error) {
 	const int32 count = controller ? controller->getParameterCount() : 0;
 	input_changes.setMaxParameters(count + 8);
 	output_changes.setMaxParameters(count + 8);
+
+	if (instrument) {
+		read_midi_map();
+	}
 
 	// ProcessContext describes the timeline: tempo, bar position, whether the transport plays.
 	// A game has none of that, so we report a stopped transport at 120 BPM in 4/4. It is still
@@ -300,6 +314,120 @@ tresult PLUGIN_API Vst3Processor::ComponentHandler::restartComponent(int32 p_fla
 	return kResultOk;
 }
 
+// MAIN THREAD, while the plugin starts. Which parameter each MIDI controller drives, per channel,
+// for the first event bus (see INSTRUMENTS in the header). The controller may be a separate
+// object from the component; IMidiMapping lives on the controller.
+void Vst3Processor::read_midi_map() {
+	for (auto &channel : midi_map) {
+		for (ParamID &id : channel) {
+			id = kNoParamId;
+		}
+	}
+	IPtr<IMidiMapping> mapping = controller ? U::cast<IMidiMapping>(controller) : nullptr;
+	if (!mapping) {
+		return;
+	}
+	for (int16 ch = 0; ch < 16; ch++) {
+		for (int16 cc = 0; cc < MIDI_MAP_SIZE; cc++) {
+			ParamID id = kNoParamId;
+			if (mapping->getMidiControllerAssignment(0, ch, CtrlNumber(cc), id) == kResultTrue) {
+				midi_map[ch][cc] = id;
+			}
+		}
+		// A program change selects an entry of a list parameter: its normalised value is
+		// program / step count, so the count is read now, with the parameter's info.
+		program_steps[ch] = 0;
+		const ParamID program = midi_map[ch][kCtrlProgramChange];
+		for (int32 i = 0; program != kNoParamId && i < controller->getParameterCount(); i++) {
+			ParameterInfo info = {};
+			if (controller->getParameterInfo(i, info) == kResultOk && info.id == program) {
+				program_steps[ch] = info.stepCount;
+				break;
+			}
+		}
+	}
+}
+
+// AUDIO THREAD. One MIDI event from the driver: notes as VST3 events, everything else through the
+// plugin's controller table (read_midi_map) as a change of the parameter it drives.
+void Vst3Processor::play_midi(const ParamEvent &p_event, int32 p_offset) {
+	using gaph::midi::Kind;
+	const Kind kind = Kind(p_event.midi_kind);
+	const int16 ch = int16((p_event.midi_channel - 1) & 0x0F);
+	auto change = [&](int p_cc, double p_value) {
+		const ParamID id = midi_map[ch][p_cc];
+		int32 queue_index = 0, point_index = 0;
+		if (id != kNoParamId) {
+			if (IParamValueQueue *q = input_changes.addParameterData(id, queue_index)) {
+				q->addPoint(p_offset, p_value < 0 ? 0 : (p_value > 1 ? 1 : p_value), point_index);
+			}
+		}
+	};
+	const double v32 = double(p_event.midi_value) / 4294967295.0;
+	Event e = {};
+	e.busIndex = 0;
+	e.sampleOffset = p_offset;
+	e.flags = Event::kIsLive;
+	switch (kind) {
+		case Kind::NOTE_ON:
+			e.type = Event::kNoteOnEvent;
+			e.noteOn = { ch, int16(p_event.midi_index), 0.0f, float(double(p_event.midi_value) / 65535.0), 0, int32(p_event.note_id & 0x7FFFFFFF) };
+			if (p_event.note_id < 0) {
+				e.noteOn.noteId = -1;
+			}
+			in_events.addEvent(e);
+			return;
+		case Kind::NOTE_OFF:
+		case Kind::CHOKE: // VST3 has no choke: a note-off is as close as it gets
+			e.type = Event::kNoteOffEvent;
+			e.noteOff = { ch, int16(p_event.midi_index), float(double(p_event.midi_value) / 65535.0), p_event.note_id >= 0 ? int32(p_event.note_id & 0x7FFFFFFF) : -1, 0.0f };
+			in_events.addEvent(e);
+			return;
+		case Kind::POLY_PRESSURE:
+			e.type = Event::kPolyPressureEvent;
+			e.polyPressure = { ch, int16(p_event.midi_index), float(v32), -1 };
+			in_events.addEvent(e);
+			return;
+		case Kind::CONTROL:
+			change(p_event.midi_index & 0x7F, v32);
+			return;
+		case Kind::CHANNEL_PRESSURE:
+			change(kAfterTouch, v32);
+			return;
+		case Kind::PITCH_BEND:
+			change(kPitchBend, v32);
+			return;
+		case Kind::PROGRAM:
+			change(kCtrlProgramChange, program_steps[ch] > 0 ? double(p_event.midi_value) / double(program_steps[ch]) : 0.0);
+			return;
+	}
+}
+
+// AUDIO THREAD, at a block's start. The transport the driver sent, at this block's first sample,
+// as VST3 wants it; an effect (no driver) keeps the stopped 120 BPM 4/4 it always had.
+void Vst3Processor::fill_context() {
+	context.projectTimeSamples = sample_time;
+	context.continousTimeSamples = sample_time; // [sic]: the SDK's own spelling.
+	if (!transport_state.known) {
+		return;
+	}
+	const gaph::midi::TransportFollower &ts = transport_state;
+	const double beat = ts.beat_at(sample_time, sample_rate);
+	context.tempo = ts.bpm;
+	context.projectTimeMusic = beat;
+	context.barPositionMusic = std::floor(beat / 4.0) * 4.0;
+	context.cycleStartMusic = ts.loop_start;
+	context.cycleEndMusic = ts.loop_end;
+	context.state = ProcessContext::kTempoValid | ProcessContext::kTimeSigValid | ProcessContext::kProjectTimeMusicValid |
+			ProcessContext::kBarPositionValid | ProcessContext::kCycleValid;
+	if (ts.playing) {
+		context.state |= ProcessContext::kPlaying;
+	}
+	if (ts.looping) {
+		context.state |= ProcessContext::kCycleActive;
+	}
+}
+
 tresult PLUGIN_API Vst3Processor::ComponentHandler::performEdit(ParamID p_id, ParamValue p_value) {
 	std::lock_guard<std::mutex> guard(owner->edit_mutex);
 	owner->edit_out_params.push_back(ParamEvent{ p_id, 0, p_value });
@@ -342,11 +470,26 @@ bool Vst3Processor::process(const AudioBlock &p_block) {
 	// Parameter changes. VST3 groups them per parameter: one IParamValueQueue each, holding
 	// (sampleOffset, value) points. addParameterData finds or claims a queue for the id from
 	// the ones setMaxParameters() made, and addPoint at an offset already present overwrites it.
+	// The transport for this block's first sample: worked out BEFORE the block's events, since a
+	// snapshot among them only holds from its own sample (from the next block, for VST3).
+	fill_context();
 	input_changes.clearQueue();
+	in_events.clear();
 	for (uint32_t i = 0; i < p_block.param_event_count; i++) {
 		const ParamEvent &ev = p_block.param_events[i];
+		const int32 offset = int32(ev.frame_offset < n ? ev.frame_offset : 0);
+		if (ev.type == ParamEvent::TRANSPORT) {
+			transport_state.take(ev.midi_value != 0, ev.value, ev.transport_beat, ev.loop_start, ev.loop_end, sample_time + offset);
+			continue;
+		}
+		if (ev.type == ParamEvent::MIDI) {
+			if (event_bus) {
+				play_midi(ev, offset);
+			}
+			continue;
+		}
 		if (ev.type != ParamEvent::PARAM) {
-			continue; // MIDI is for instruments, which come to VST3 later
+			continue;
 		}
 		int32 queue_index = 0, point_index = 0;
 		if (IParamValueQueue *q = input_changes.addParameterData(ev.param_id, queue_index)) {
@@ -354,9 +497,6 @@ bool Vst3Processor::process(const AudioBlock &p_block) {
 		}
 	}
 	output_changes.clearQueue();
-
-	context.projectTimeSamples = sample_time;
-	context.continousTimeSamples = sample_time; // [sic]: the SDK's own spelling.
 
 	ProcessData data;
 	data.processMode = kRealtime;
@@ -368,7 +508,7 @@ bool Vst3Processor::process(const AudioBlock &p_block) {
 	data.outputs = output_buffers.data();
 	data.inputParameterChanges = &input_changes;
 	data.outputParameterChanges = &output_changes;
-	data.inputEvents = nullptr;
+	data.inputEvents = event_bus ? &in_events : nullptr;
 	data.outputEvents = nullptr;
 	data.processContext = &context;
 
