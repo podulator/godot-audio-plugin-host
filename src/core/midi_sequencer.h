@@ -103,7 +103,7 @@ public:
 			return -1;
 		}
 		const int64_t id = next_note_id++;
-		notes[id] = Note{ p_channel, p_key, 0, NoteState::SCHEDULED };
+		notes[id] = Note{ p_channel, p_key, 0, NoteState::SCHEDULED, p_velocity };
 		Event on{ Kind::NOTE_ON, p_channel, p_key, p_velocity, id };
 		Event off{ Kind::NOTE_OFF, p_channel, p_key, NOTE_OFF_VELOCITY, id };
 		if (p_at == Transport::NOW) {
@@ -149,6 +149,14 @@ public:
 		if (it == notes.end() || it->second.state == NoteState::ENDED) {
 			return;
 		}
+		// Waiting to be chased on resume (already silent): ending it just forgets it.
+		auto waiting = std::find(chased.begin(), chased.end(), p_id);
+		if (waiting != chased.end()) {
+			chased.erase(waiting);
+			unplan_note(p_id, false);
+			notes.erase(it);
+			return;
+		}
 		if (unplan_note(p_id, true)) { // its note-on was still waiting: drop it, and its length
 			unplan_note(p_id, false);
 			notes.erase(it);
@@ -190,15 +198,28 @@ public:
 
 	// --- The transport -----------------------------------------------------------------------
 
+	// CHASING NOTES (off by default, as in most DAWs). Pause ends every sounding note. With
+	// chase_notes on, those that would still be sounding start again on resume: the same note (its
+	// id, channel, key, velocity), and its planned end, if it has one, still comes at its beat.
+	void set_chase_notes(bool p_on) { chase_notes = p_on; }
+	bool get_chase_notes() const { return chase_notes; }
+
 	// Starts, or resumes after pause(): then each channel's last heard controller, pitch bend,
 	// pressure and program go out again first ("chasing"), so the instruments are in the state
-	// the music left them in.
+	// the music left them in; and, with chase_notes, the notes the pause ended start again.
 	void play(int64_t p_now_us) {
 		if (clock.is_playing()) {
 			return;
 		}
 		if (paused) {
 			chase(p_now_us);
+			for (int64_t id : chased) {
+				auto it = notes.find(id);
+				if (it != notes.end()) {
+					dispatch(Event{ Kind::NOTE_ON, it->second.channel, it->second.key, it->second.velocity, id }, p_now_us, Transport::never());
+				}
+			}
+			chased.clear();
 			paused = false;
 		}
 		clock.play(p_now_us);
@@ -214,7 +235,11 @@ public:
 			return;
 		}
 		take_back(p_now_us, StopMode::RELEASE, true);
-		end_sounding_notes();
+		if (chase_notes) {
+			keep_sounding_notes_for_chasing();
+		} else {
+			end_sounding_notes();
+		}
 		clock.pause(p_now_us);
 		paused = true;
 		announce(p_now_us);
@@ -319,6 +344,7 @@ private:
 		uint16_t key;
 		uint64_t target; // set when its note-on goes out; note-offs follow it there
 		NoteState state;
+		uint32_t velocity; // kept for chasing: a chased note starts again as it started
 	};
 
 	// Handed out, not heard yet. `r` is its running position, or NaN for a NOW or free event.
@@ -353,6 +379,8 @@ private:
 	std::map<uint64_t, std::array<ChannelState, 16>> heard_state;
 	std::vector<uint64_t> targets_used; // every target ever sent to: a stop goes to all of them
 	bool paused = false;
+	bool chase_notes = false;
+	std::vector<int64_t> chased; // notes the pause ended, to start again on resume (chase_notes)
 	int64_t last_beat = -1;
 	double last_running = 0; // the running position at the last tick, for spotting loop jumps
 	double jumps_sent_upto = 0; // loop jumps up to this running position have gone to the targets
@@ -513,10 +541,21 @@ private:
 		}
 	}
 
+	// With chase_notes: the notes that were sounding wait for the resume (their planned ends stay).
+	void keep_sounding_notes_for_chasing() {
+		for (auto &[id, n] : notes) {
+			if (n.state == NoteState::SOUNDING) {
+				n.state = NoteState::SCHEDULED;
+				chased.push_back(id);
+			}
+		}
+	}
+
 	void end_all_notes() {
 		schedule.clear();
 		free_schedule.clear();
 		notes.clear();
+		chased.clear();
 	}
 
 	void stop_with(int64_t p_now_us, StopMode p_mode) {

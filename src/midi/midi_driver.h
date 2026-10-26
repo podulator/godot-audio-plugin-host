@@ -84,6 +84,8 @@ public:
 	double get_bpm() const;
 	void set_lookahead_ms(double p_ms);
 	double get_lookahead_ms() const;
+	void set_chase_notes(bool p_on) { seq.set_chase_notes(p_on); }
+	bool get_chase_notes() const { return seq.get_chase_notes(); }
 	int64_t get_velocity_max() const;
 	int64_t get_controller_max() const;
 	int64_t get_pitch_bend_max() const;
