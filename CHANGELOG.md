@@ -1,5 +1,10 @@
 # Changelog
 
+## In development
+
+- **MIDI:** a new addon, `midi_host`, with `MidiDriver`: notes, controllers, pitch bend, pressure and program changes from scripts, now or planned on a beat grid (`next()`, `after()`, `at_beat()`), landing on the exact audio sample. MIDI 1.0 or 2.0 value ranges, channels 1-16, a `MidiNote` for each note, and a transport (play, pause and resume, stop, seek, loop, panic) with signals. Targets are any objects with `midi_event()` and `midi_stop()`, and optionally `midi_transport()`.
+- The tests never read or write the real home directory any more.
+
 ## 1.1.1 (unreleased)
 
 - Parameter changes made after a gap in the audio (an Android app back from the background, a laptop waking up, a switched audio device) were heard as much later as the gap was long, and changes scheduled across the gap too. The host now notices the restart and times them from it.
