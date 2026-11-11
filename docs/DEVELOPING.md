@@ -17,7 +17,7 @@ python3 -m venv .venv && .venv/bin/pip install scons
 
 `--depth 1` fetches only the pinned commit of each submodule, about 4 MB in all instead of 46 MB. (`.gitmodules` marks them shallow too, but git honours that only when the pinned commit is the newest on its branch.) Do not clone with `--recursive`: the VST3 SDK has more submodules of its own (VSTGUI, the documentation, tutorials, some 300 MB), and the host needs only `base`, `pluginterfaces` and `public.sdk`, which the third line fetches. Submodules come without their tags, so `git describe` inside them can name an older tag; the commits are the right ones.
 
-The libraries are written straight into `demo/addons/clap_host/bin/` and `demo/addons/vst3_host/bin/`, so the demo project uses them at once.
+The libraries are written straight into `demo/addons/clap_host/bin/`, `demo/addons/vst3_host/bin/` and `demo/addons/midi_host/bin/`, so the demo project uses them at once.
 
 | platform | needs | notes |
 | --- | --- | --- |
@@ -83,7 +83,7 @@ To release: set `VERSION`, commit, then `git tag v$(cat VERSION) && git push ori
 | Platform test on Linux / Windows / macOS | each OS | `tests/platform/run.sh`, plus the plugin-window tests on Windows and macOS |
 | macOS: sign with the Developer ID and notarise | macos-latest | see below |
 
-The Linux build runs on Ubuntu 22.04 on purpose: a library linked against a newer glibc does not start on an older system. A final job merges every platform's libraries into one artifact, **godot-audio-plugin-host**, holding only `addons/clap_host` and `addons/vst3_host`, each with its own copy of `README.md`, `LICENSE` and `THIRD_PARTY_NOTICES.md` (nothing at the zip's root: the editor's installer extracts only the addon folders), ready to unzip into a project. Every job keeps an SCons cache, so a rebuild after a small change is quick.
+The Linux build runs on Ubuntu 22.04 on purpose: a library linked against a newer glibc does not start on an older system. A final job merges every platform's libraries into one artifact, **godot-audio-plugin-host**, holding only `addons/clap_host`, `addons/vst3_host` and `addons/midi_host`, each with its own copy of `README.md`, `LICENSE` and `THIRD_PARTY_NOTICES.md` (nothing at the zip's root: the editor's installer extracts only the addon folders), ready to unzip into a project. Every job keeps an SCons cache, so a rebuild after a small change is quick.
 
 ### macOS signing
 

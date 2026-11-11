@@ -247,7 +247,7 @@ Plugin windows on Windows and macOS are new in this release, and tested in CI wi
 A build that is not notarised (see [Developing](https://github.com/podulator/godot-audio-plugin-host/blob/main/docs/DEVELOPING.md)) is blocked as downloaded from the internet. Clear the flag once, from the project folder:
 
 ```sh
-xattr -dr com.apple.quarantine addons/clap_host addons/vst3_host
+xattr -dr com.apple.quarantine addons/clap_host addons/vst3_host addons/midi_host
 ```
 
 ### Android

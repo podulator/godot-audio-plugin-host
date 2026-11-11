@@ -1,5 +1,5 @@
 name: Build both extensions
-description: Builds clap_host and vst3_host for one target; the libraries land in demo/addons/*/bin.
+description: Builds clap_host, vst3_host and midi_host for one target; the libraries land in demo/addons/*/bin.
 
 inputs:
   target:

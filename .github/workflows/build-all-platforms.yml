@@ -19,8 +19,8 @@ name: Build all platforms
 # Platform tests (Linux, Windows, macOS): tests/platform/run.sh on that OS, with plugins built from
 # this repository, so hosting is shown working there without anyone needing that machine.
 #
-# The result is one artifact, godot-audio-plugin-host, holding addons/clap_host and
-# addons/vst3_host with every platform's libraries: unzip it into a Godot project's root.
+# The result is one artifact, godot-audio-plugin-host, holding addons/clap_host, addons/vst3_host
+# and addons/midi_host with every platform's libraries: unzip it into a Godot project's root.
 on:
   push:
     tags: ['v*']
@@ -173,7 +173,7 @@ jobs:
           merge-multiple: true
 
       # The README, LICENSE and THIRD_PARTY_NOTICES.md go into each addon folder, and nowhere else:
-      # users copy only addons/clap_host and addons/vst3_host into their projects (the editor's
+      # users copy only the addon folders (clap_host, vst3_host, midi_host) into their projects (the editor's
       # Asset Store installer extracts just those), so anything at the zip's root would be left
       # behind, and the MIT notices of the code compiled into the libraries (CLAP, godot-cpp,
       # VST 3 SDK) have to travel with the addons. Copied here rather than kept twice.
@@ -225,8 +225,8 @@ jobs:
           if [ "$SIGNED" = true ]; then
             mac="macOS: signed with a Developer ID and notarised."
           else
-            mac="macOS: signed ad hoc only; after downloading, run xattr -dr com.apple.quarantine addons/clap_host addons/vst3_host."
+            mac="macOS: signed ad hoc only; after downloading, run xattr -dr com.apple.quarantine addons/clap_host addons/vst3_host addons/midi_host."
           fi
           gh release create "$GITHUB_REF_NAME" "$zip_name" --repo "$GITHUB_REPOSITORY" \
             --draft "${prerelease[@]}" --title "$GITHUB_REF_NAME" \
-            --notes "Built from $GITHUB_SHA: Linux x86_64, Windows x86_64 and macOS universal libraries for both addons (clap_host, vst3_host), and Android arm64 and x86_64 for clap_host, Godot 4.5 or later. Copy addons/clap_host and/or addons/vst3_host into your project's addons/ folder; see README.md inside. $mac"
+            --notes "Built from $GITHUB_SHA: Linux x86_64, Windows x86_64 and macOS universal libraries for the three addons (clap_host, vst3_host, midi_host), and Android arm64 and x86_64 for clap_host and midi_host, Godot 4.5 or later. Copy the addons you need (addons/clap_host, addons/vst3_host, addons/midi_host) into your project's addons/ folder; see README.md inside. $mac"
