@@ -11,6 +11,7 @@
 // T and its note-off is not (none, or one at or after T, which the DROP removes). So the book
 // answers that, and the instrument queues a note-off at T for each such note.
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
