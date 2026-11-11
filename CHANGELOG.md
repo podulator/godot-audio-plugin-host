@@ -6,7 +6,7 @@
 - **Instruments:** `ClapInstrument` and `Vst3Instrument` play CLAP and VST3 instrument plugins as audio streams, through any `AudioStreamPlayer` (2D and 3D too), on any bus, as `MidiDriver` targets. Notes on the exact sample; CLAP note events, MIDI 2.0 or MIDI 1.0 by what the plugin takes; VST3 controllers through the plugin's MIDI mapping; the plugin follows the driver's tempo and song position. Saved with the scene (plugin state and hand-set parameters), parameters as inspector sliders, and the plugin's window from the inspector's Open Plugin Window button. In the editor, a player's Stream property lists each installed instrument by name; scripts list them with `scan_plugins()`, as for effects.
 - The tests never read or write the real home directory any more.
 
-## 1.1.1 (unreleased)
+## 1.1.1 (2026-11-11)
 
 - On Linux and Android the libraries exported the whole C++ standard library linked into them, besides their entry point, so a plugin could end up partly on our copy of it. They now export only the entry point.
 - Parameter changes made after a gap in the audio (an Android app back from the background, a laptop waking up, a switched audio device) were heard as much later as the gap was long, and changes scheduled across the gap too. The host now notices the restart and times them from it.
