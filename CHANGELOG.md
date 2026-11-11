@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.1 (unreleased)
+## 1.1.1 (2026-11-11)
 
 - On Linux and Android the libraries exported the whole C++ standard library linked into them, besides their entry point, so a plugin could end up partly on our copy of it. They now export only the entry point.
 - Parameter changes made after a gap in the audio (an Android app back from the background, a laptop waking up, a switched audio device) were heard as much later as the gap was long, and changes scheduled across the gap too. The host now notices the restart and times them from it.
