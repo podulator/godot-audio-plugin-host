@@ -1,0 +1,15 @@
+[remap]
+
+importer="midi_host.clip"
+importer_version=1
+type="MidiClip"
+uid="uid://3654k0rp10ij"
+path="res://.godot/imported/four_notes.mid-81ff816730d0d51175777a6719f36072.res"
+
+[deps]
+
+source_file="res://tests/data/four_notes.mid"
+dest_files=["res://.godot/imported/four_notes.mid-81ff816730d0d51175777a6719f36072.res"]
+
+[params]
+

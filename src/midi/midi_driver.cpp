@@ -50,6 +50,74 @@ void MidiNote::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_key"), &MidiNote::get_key);
 }
 
+// --- MidiPart ------------------------------------------------------------------------------------
+
+void MidiPart::setup(MidiDriver *p_driver, int32_t p_id, const Ref<MidiClip> &p_clip) {
+	driver_id = p_driver->get_instance_id();
+	id = p_id;
+	clip = p_clip;
+}
+
+MidiDriver *MidiPart::driver_or_null() const {
+	return Object::cast_to<MidiDriver>(ObjectDB::get_instance(driver_id));
+}
+
+void MidiPart::remove() {
+	if (MidiDriver *d = driver_or_null()) {
+		d->sequencer().remove_part(id, MidiDriver::get_time_us());
+	}
+}
+bool MidiPart::is_playing() const {
+	MidiDriver *d = driver_or_null();
+	return d && d->sequencer().has_part(id);
+}
+void MidiPart::set_muted(bool p_muted) {
+	if (MidiDriver *d = driver_or_null()) {
+		d->sequencer().set_part_muted(id, p_muted);
+	}
+}
+bool MidiPart::is_muted() const {
+	MidiDriver *d = driver_or_null();
+	return d && d->sequencer().is_part_muted(id);
+}
+void MidiPart::set_track_muted(int p_track, bool p_muted) {
+	if (MidiDriver *d = driver_or_null()) {
+		d->sequencer().set_part_track_muted(id, p_track, p_muted);
+	}
+}
+bool MidiPart::is_track_muted(int p_track) const {
+	MidiDriver *d = driver_or_null();
+	return d && d->sequencer().is_part_track_muted(id, p_track);
+}
+void MidiPart::set_channel(int p_from, int p_to) {
+	ERR_FAIL_COND_MSG(p_from < 1 || p_from > 16 || p_to < 1 || p_to > 16, "MidiPart: channels are 1-16.");
+	if (MidiDriver *d = driver_or_null()) {
+		d->sequencer().set_part_channel(id, p_from, p_to);
+	}
+}
+void MidiPart::set_follow_tempo(bool p_follow) {
+	if (MidiDriver *d = driver_or_null()) {
+		d->sequencer().set_part_follow_tempo(id, p_follow);
+	}
+}
+bool MidiPart::get_follow_tempo() const {
+	MidiDriver *d = driver_or_null();
+	return d && d->sequencer().get_part_follow_tempo(id);
+}
+
+void MidiPart::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("remove"), &MidiPart::remove);
+	ClassDB::bind_method(D_METHOD("is_playing"), &MidiPart::is_playing);
+	ClassDB::bind_method(D_METHOD("set_muted", "muted"), &MidiPart::set_muted);
+	ClassDB::bind_method(D_METHOD("is_muted"), &MidiPart::is_muted);
+	ClassDB::bind_method(D_METHOD("set_track_muted", "track", "muted"), &MidiPart::set_track_muted);
+	ClassDB::bind_method(D_METHOD("is_track_muted", "track"), &MidiPart::is_track_muted);
+	ClassDB::bind_method(D_METHOD("set_channel", "from", "to"), &MidiPart::set_channel);
+	ClassDB::bind_method(D_METHOD("set_follow_tempo", "follow"), &MidiPart::set_follow_tempo);
+	ClassDB::bind_method(D_METHOD("get_follow_tempo"), &MidiPart::get_follow_tempo);
+	ClassDB::bind_method(D_METHOD("get_clip"), &MidiPart::get_clip);
+}
+
 // --- MidiDriver: setup and properties ------------------------------------------------------------
 
 MidiDriver::MidiDriver() {
@@ -175,6 +243,34 @@ void MidiDriver::all_notes_off(double p_at) {
 	seq.end_every_note(p_at, get_time_us());
 }
 
+// --- Clips ---------------------------------------------------------------------------------------
+
+// On the song's timeline: it follows seek and loop as the music does, and its tempo map sets the
+// tempo. Stays until removed.
+Ref<MidiPart> MidiDriver::place_clip(const Ref<MidiClip> &p_clip, double p_song_beat, int p_repeats) {
+	ERR_FAIL_COND_V_MSG(p_clip.is_null(), Ref<MidiPart>(), "MidiDriver: place_clip() needs a MidiClip.");
+	ERR_FAIL_COND_V_MSG(!(p_song_beat >= 0), Ref<MidiPart>(), "MidiDriver: a clip is placed at song beat 0 or later.");
+	ERR_FAIL_COND_V_MSG(p_repeats < 0, Ref<MidiPart>(), "MidiDriver: repeats is 0 (for ever) or more.");
+	const int32_t id = seq.add_part(p_clip->get_clip(), true, p_song_beat, p_repeats, true, get_time_us());
+	Ref<MidiPart> part;
+	part.instantiate();
+	part->setup(this, id, p_clip);
+	return part;
+}
+
+// From `at` on (NOW, next(), after(), at_beat()): plays through, whatever the song does; ignores
+// the clip's tempo map unless set_follow_tempo(true). Stop and seek drop it.
+Ref<MidiPart> MidiDriver::play_clip(const Ref<MidiClip> &p_clip, double p_at, int p_repeats) {
+	ERR_FAIL_COND_V_MSG(p_clip.is_null(), Ref<MidiPart>(), "MidiDriver: play_clip() needs a MidiClip.");
+	ERR_FAIL_COND_V_MSG(std::isnan(p_at), Ref<MidiPart>(), "MidiDriver: that position is never reached (outside the running loop).");
+	ERR_FAIL_COND_V_MSG(p_repeats < 0, Ref<MidiPart>(), "MidiDriver: repeats is 0 (for ever) or more.");
+	const int32_t id = seq.add_part(p_clip->get_clip(), false, p_at, p_repeats, false, get_time_us());
+	Ref<MidiPart> part;
+	part.instantiate();
+	part->setup(this, id, p_clip);
+	return part;
+}
+
 // --- The transport -------------------------------------------------------------------------------
 
 // Each transport call emits its signal after the change, so a handler sees the new state.
@@ -279,6 +375,10 @@ void MidiDriver::transport(uint64_t p_target, int64_t p_time_us, const gaph::mid
 			p_info.looping ? p_info.loop_start : 0.0, p_info.looping ? p_info.loop_end : 0.0);
 }
 
+void MidiDriver::tempo(double p_bpm) {
+	emit_signal("tempo_changed", p_bpm);
+}
+
 void MidiDriver::looped(double, double p_song_beat) {
 	emit_signal("position_changed", p_song_beat);
 }
@@ -332,6 +432,9 @@ void MidiDriver::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("channel_pressure", "channel", "value", "at"), &MidiDriver::channel_pressure, DEFVAL(NOW));
 	ClassDB::bind_method(D_METHOD("program_change", "channel", "program", "at"), &MidiDriver::program_change, DEFVAL(NOW));
 	ClassDB::bind_method(D_METHOD("all_notes_off", "at"), &MidiDriver::all_notes_off, DEFVAL(NOW));
+
+	ClassDB::bind_method(D_METHOD("place_clip", "clip", "song_beat", "repeats"), &MidiDriver::place_clip, DEFVAL(0.0), DEFVAL(1));
+	ClassDB::bind_method(D_METHOD("play_clip", "clip", "at", "repeats"), &MidiDriver::play_clip, DEFVAL(NOW), DEFVAL(1));
 
 	ClassDB::bind_method(D_METHOD("play"), &MidiDriver::play);
 	ClassDB::bind_method(D_METHOD("pause"), &MidiDriver::pause);

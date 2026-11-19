@@ -6,7 +6,7 @@ Run **CLAP** and **VST® 3** audio effect plugins on Godot's audio buses, and **
 | --- | --- |
 | `addons/clap_host/` | `ClapPluginEffect`, `ClapSidechainSend`, `ClapInstrument` |
 | `addons/vst3_host/` | `Vst3PluginEffect`, `Vst3SidechainSend`, `Vst3Instrument` |
-| `addons/midi_host/` | `MidiDriver`, `MidiNote` |
+| `addons/midi_host/` | `MidiDriver`, `MidiNote`, `MidiClip`, `MidiPart` |
 
 Each addon works on its own, and they can be used together in one project.
 
@@ -144,6 +144,30 @@ midi.beat.connect(_on_beat)
 - **Targets** are [instruments](#instruments), or any object with `midi_event()` and `midi_stop()` methods, and optionally `midi_transport()`: a GDScript synth can be one. The class reference (F1, `MidiDriver`) describes them.
 - The driver keeps running while the scene tree is paused; `pause()` pauses the music. Several drivers can run side by side, each with its own transport.
 
+### MIDI files and patterns
+
+A `.mid` file (MIDI 1.0) or `.midi2` MIDI Clip File (MIDI 2.0) in the project is imported as a `MidiClip`; `MidiClip.load_file()` reads one at run time, and a pattern can be built in code. The driver plays a clip in one of two ways:
+
+```gdscript
+var song: MidiClip = load("res://music/theme.mid")
+var part := midi.place_clip(song)             # on the song's timeline, at beat 0
+midi.set_loop(0.0, 32.0)
+midi.play()
+
+var fill := MidiClip.new()                    # a pattern in code: beats, channel, key, velocity, length
+for i in 4:
+    fill.add_note(i * 0.25, 10, 38, 100, 0.125)
+midi.play_clip(fill, midi.next(4.0))          # a stinger from the next bar, whatever the song does
+
+part.set_track_muted(2, true)                 # mute the clip's third track
+part.set_channel(1, 3)                        # its channel 1 plays on channel 3
+```
+
+- **`place_clip()`** puts a clip on the song's timeline, like a part in a DAW: seek and loop move through it as through the music. Started in the middle, it first sends the controllers, programs, pitch bend and tempo in force there; at a loop's end its notes end. The file's tempo map sets the tempo, each change on its exact beat.
+- **`play_clip()`** plays a clip from an `at` on, a number of times or for ever, and ignores its tempo map unless `set_follow_tempo(true)`. Like planned notes, it is dropped by `stop()` and `seek()`.
+- **Exact:** a clip's notes land on the exact sample, tempo changes included. Its events are worked out a lookahead ahead as the music gets there, so a long song or an endless pattern costs nothing up front.
+- **Kept from a file:** notes, controllers, pitch bend, pressures, programs (a MIDI 2.0 program's bank as bank select), tempo, time signatures and track names. **Skipped:** SysEx, MIDI 2.0 groups and per-note controllers.
+
 ## Instruments
 
 `ClapInstrument` and `Vst3Instrument` play an instrument plugin as an audio stream: put one in a player's `stream`, play the player, and bind the instrument to a `MidiDriver` channel.
@@ -259,7 +283,7 @@ xattr -dr com.apple.quarantine addons/clap_host addons/vst3_host addons/midi_hos
 ## Limitations
 
 - **No offline rendering.**
-- **No MIDI hardware yet.** [MIDI](#midi) comes from scripts; MIDI input from and output to devices, and MIDI files, are not there yet.
+- **No MIDI hardware yet.** [MIDI](#midi) comes from scripts and MIDI files; MIDI input from and output to devices is not there yet.
 - **Stereo pairs.** Godot runs one instance of an effect per stereo channel pair, so on a 5.1 or 7.1 bus there are three or four plugin instances, kept in step by the host.
 - **Latency.** Parameter changes are heard one audio block (about 11.6 ms at 44.1 kHz) after they are made, evenly spaced. Plugins that report their own latency are not compensated for.
 - **Blocks of 512 frames.** That is Godot's mixing block; the host never hands a plugin more than it was prepared for.

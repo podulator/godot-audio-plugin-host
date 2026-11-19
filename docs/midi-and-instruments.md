@@ -6,12 +6,12 @@ Status: phase 1 built (26-27.10.2026): the driver (`midi_host`), CLAP and VST3 i
 
 Play CLAP and VST3 **instruments** in Godot, driven by a **real-time MIDI driver** that scripts talk to directly, in the spirit of GDSiON's `SiONDriver`: notes, controllers and pitch bend sent ad hoc from gameplay code, with tempo, quantising and beat signals, sample-accurate in the audio.
 
-MIDI file playback and external MIDI hardware come later, on the same foundations.
+MIDI files and patterns play through the same driver (Phases, 2); external MIDI hardware comes later, on the same foundations.
 
 ## What Godot provides (checked in the 4.7 source)
 
 - **MIDI input only:** `OS.open_midi_inputs()` delivers `InputEventMIDI` on Linux (ALSA), Windows (WinMM) and macOS (CoreMIDI). The events arrive on the main thread as ordinary input events, without timestamps, so they are up to one frame late (about 16 ms at 60 fps).
-- **No MIDI output, no MIDI file support, no MIDI on Android.**
+- **No MIDI output, no MIDI file support, no MIDI on Android** (MIDI files: our own reader, `core/midi_file.h`).
 - **An extension can be a sound source:** `AudioStreamPlayback::_mix` can be overridden from GDExtension (`scene/resources/audio/audio_stream.h`), so an instrument can be an `AudioStream` played by `AudioStreamPlayer`, `AudioStreamPlayer2D` or `AudioStreamPlayer3D`, on any bus.
 
 ## Architecture
@@ -20,7 +20,7 @@ Three addons in this repository, one per concern, as now (Mat, 26.10.2026: MIDI 
 
 | addon | new classes | depends on |
 | --- | --- | --- |
-| `midi_host` (new) | `MidiDriver`, `MidiNote`, later `MidiClip`, `MidiInput`, `MidiOutput` | nothing: format-neutral |
+| `midi_host` (new) | `MidiDriver`, `MidiNote`, `MidiClip`, `MidiPart`, later `MidiInput`, `MidiOutput` | nothing: format-neutral |
 | `clap_host` | `ClapInstrument` (an `AudioStream`) | the existing CLAP host |
 | `vst3_host` | `Vst3Instrument` (an `AudioStream`) | the existing VST3 host |
 
@@ -163,7 +163,7 @@ An instrument holds at most the lookahead's worth of events, in the runtime's fi
 ## Phases
 
 1. **Driver + CLAP instruments: built.** `MidiDriver` with tempo, `at` and its helpers, length, the transport (stop, pause and resume with chasing, seek, loop, panic), its signals, note tracking and per-channel routing; `ClapInstrument` with notes, MIDI and the transport. Tested with deterministic test instruments (each note adds a fixed level, so its start and end are exact steps in the captured audio): notes to the sample on the grid (11025 and 22050 samples at 44.1 kHz), the MIDI 1.0 path, pause, two channels, loop jumps. Run on Linux; CI and the other platforms have not run it yet. Not built: `chase_notes` (restarting notes that span a resume point).
-2. **Patterns and files:** `sequence_on(pattern)` on the audio thread, `MidiClip` resources and an importer for Standard MIDI Files (`.mid`, MIDI 1.0) and MIDI Clip Files (MIDI 2.0), played through the same driver. A pattern entered by hand has no format to state its version: its values decide (anything beyond MIDI 1.0's ranges makes it a MIDI 2.0 pattern).
+2. **Patterns and files: built.** `MidiClip` (`core/midi_clip.h`, the resource in `midi/midi_clip_resource.h`): events on a beat timeline, notes whole with their length, values at MIDI 2.0 resolution, the file's tempo map and meters beside them. Read from Standard MIDI Files (formats 0-2, running status, SMPTE division at 120 bpm) and MIDI Clip Files (UMP: MIDI 1.0 and 2.0 channel voice, Flex Data tempo and meter; `core/midi_file.h`), imported in the editor (`midi/midi_import.h`), loaded at run time, or built in code. Played as **parts** (`Sequencer::add_part`): on the song's timeline (`place_clip`), with seek, loop and chasing of controllers, programs, bend, pressure and tempo; or from a running position (`play_clip`), like planned notes. A part's events are worked out a lookahead ahead, tagged with the part, so mute, removal and a new loop take back exactly its own. **Tempo maps** are exact: the transport keeps pending tempo segments (`Transport::tempo_at`), so positions and times are right on both sides of a change before it is reached; a tempo change is an event in the plan (`Kind::TEMPO`), taken back by pause like any other. Tested in the core with made-up times (parsers with damaged files, loops clamping notes, chasing on seek, a tempo map across a pause), in Godot (import, `load_file`, timing as targets see it, a pattern saved and loaded), and in the sound: a file's notes through the test instrument exactly 22,050 samples apart at 120 bpm and 44,100 after its change to 60.
 3. **VST3 instruments: built.** `Vst3Instrument`, VST3 note events and `IMidiMapping`, the transport per block; and saving for both instrument types. Tested as for CLAP, plus a controller through `IMidiMapping`, and a saved instrument loaded fresh sounding as saved.
 4. **External MIDI:** `MidiOutput` (to hardware and other programs) and a timestamped `MidiInput`, per platform: ALSA, CoreMIDI, Windows MIDI and Android MIDI. Only if live playing or external gear matter.
 

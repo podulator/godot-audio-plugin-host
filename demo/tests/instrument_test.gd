@@ -35,6 +35,7 @@ func _ready() -> void:
 		await _test_outputs(path, DRUMS_ID, "CLAP")
 		await _test_sleep(path)
 		await _test_transport(path)
+		await _test_clip_audio(path)
 	var vst3_notes := TestUtilScript.own_plugin("gaph_test_vst3_instrument.vst3")
 	var vst3_transport := TestUtilScript.own_plugin("gaph_test_vst3_transport.vst3")
 	if not DirAccess.dir_exists_absolute(vst3_notes) or not DirAccess.dir_exists_absolute(vst3_transport):
@@ -482,3 +483,29 @@ func _test_scan(dir: String) -> void:
 		_check(all_load, "%s: every instrument it lists loads as an instrument (%d)" % [format, found.size()])
 	var effects := Vst3PluginEffect.scan_plugins([dir]).map(func(d): return d.get("name", ""))
 	_check(not effects.any(func(n): return n.contains("Instrument") or n.contains("Drums")), "Vst3PluginEffect.scan_plugins() still lists effects only (%s)" % ", ".join(effects))
+
+
+
+# A MIDI file through a real instrument, measured in the sound: the imported clip's notes on beats
+# 0, 1, 2 and 3, with its tempo map (120 bpm, then 60 from beat 2), each note adding 0.25 for half
+# a beat. In the audio: starts exactly a beat apart at 120 (rate / 2 samples), then at 60 (rate).
+func _test_clip_audio(path: String) -> void:
+	var r := await _rig(path, CLAP_ID, "Inst_Clip")
+	var midi: MidiDriver = r.midi
+	midi.set_channel_target(1, r.inst)
+	midi.place_clip(load("res://tests/data/four_notes.mid"), 0.0)
+	await get_tree().create_timer(0.3).timeout
+	r.cap.clear_buffer()
+	midi.play()
+	var steps := _steps(await _collect(r.cap, 3.6))
+	# The file's velocity is 100: each note adds 0.25 x 100/127. A start is a step up from silence.
+	var starts := []
+	for i in steps.size():
+		if steps[i][1] > 0.1 and (i == 0 or steps[i - 1][1] == 0.0):
+			starts.append(steps[i][0])
+	var gaps := []
+	for i in range(1, starts.size()):
+		gaps.append(starts[i] - starts[i - 1])
+	var beat := int(rate / 2.0)
+	_check(starts.size() == 4 and gaps == [beat, beat, 2 * beat], "a MIDI file with a tempo change, to the sample: note starts %s apart, want [%d, %d, %d]" % [gaps, beat, beat, 2 * beat])
+	await _unrig(r)

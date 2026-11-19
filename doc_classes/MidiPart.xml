@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="MidiPart" inherits="RefCounted" api_type="extension" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		A clip playing on a [MidiDriver], as [method MidiDriver.place_clip] and [method MidiDriver.play_clip] return it.
+	</brief_description>
+	<description>
+		It only refers to the part: dropping it does not stop the part. Muting and channel changes apply to what the part plans from then on; the driver plans a lookahead ahead (about 100 ms), so they are heard that much later at most, and notes already sounding play on to their ends.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_clip" qualifiers="const">
+			<return type="MidiClip" />
+			<description>
+				The clip this part plays.
+			</description>
+		</method>
+		<method name="get_follow_tempo" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Whether the clip's tempo map sets the driver's tempo as the part plays.
+			</description>
+		</method>
+		<method name="is_muted" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Whether the part is muted.
+			</description>
+		</method>
+		<method name="is_playing" qualifiers="const">
+			<return type="bool" />
+			<description>
+				[code]true[/code] while the part is on its driver: a part on the song stays until [method remove]; a part from [method MidiDriver.play_clip] until it has played its repeats, or a stop or seek drops it.
+			</description>
+		</method>
+		<method name="is_track_muted" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="track" type="int" />
+			<description>
+				Whether one of the clip's tracks is muted.
+			</description>
+		</method>
+		<method name="remove">
+			<return type="void" />
+			<description>
+				Takes the part away: nothing more is planned, and its notes sounding or about to sound end now.
+			</description>
+		</method>
+		<method name="set_channel">
+			<return type="void" />
+			<param index="0" name="from" type="int" />
+			<param index="1" name="to" type="int" />
+			<description>
+				Plays the clip's channel [param from] on channel [param to] instead (both 1-16), so one clip can play on another instrument.
+			</description>
+		</method>
+		<method name="set_follow_tempo">
+			<return type="void" />
+			<param index="0" name="follow" type="bool" />
+			<description>
+				Whether the clip's tempo map sets the driver's tempo as the part plays: on for [method MidiDriver.place_clip], off for [method MidiDriver.play_clip].
+			</description>
+		</method>
+		<method name="set_muted">
+			<return type="void" />
+			<param index="0" name="muted" type="bool" />
+			<description>
+				Mutes or unmutes the whole part.
+			</description>
+		</method>
+		<method name="set_track_muted">
+			<return type="void" />
+			<param index="0" name="track" type="int" />
+			<param index="1" name="muted" type="bool" />
+			<description>
+				Mutes or unmutes one of the clip's tracks (see [member MidiClip.track_names]).
+			</description>
+		</method>
+	</methods>
+</class>

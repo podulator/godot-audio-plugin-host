@@ -400,6 +400,8 @@ void Vst3Processor::play_midi(const ParamEvent &p_event, int32 p_offset) {
 		case Kind::PROGRAM:
 			change(kCtrlProgramChange, program_steps[ch] > 0 ? double(p_event.midi_value) / double(program_steps[ch]) : 0.0);
 			return;
+		case Kind::TEMPO: // the driver's own, never sent to a target
+			return;
 	}
 }
 

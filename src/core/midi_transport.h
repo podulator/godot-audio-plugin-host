@@ -16,10 +16,19 @@
 // host clock (gaph::host_time_us()), and is heard one audio block after that, like every
 // timestamped change in this host (block_clock.h). Play, resume and tempo changes re-anchor
 // (r0, t0) at "now"; nothing else touches the anchor, so times stay exact.
+//
+// TEMPO CHANGES AHEAD
+// A clip's tempo map changes the tempo at beat positions, which the driver learns a lookahead
+// ahead (tempo_at). Each becomes a PENDING segment: from running position r (due at time t, worked
+// out with the tempo before it) on, the new tempo. running_at and time_of walk the segments, so
+// both stay exact on either side of a change before it is reached; settle() folds the ones whose
+// time has come into the anchor. Pause, a hand-set tempo and stop drop what is still pending
+// (the driver hands those changes out again later, like any event it takes back).
 
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <vector>
 
 namespace gaph::midi {
 
@@ -31,6 +40,7 @@ public:
 	static double never() { return std::numeric_limits<double>::quiet_NaN(); }
 
 	bool is_playing() const { return playing; }
+	// The tempo at the anchor: now, once settle() has run. bpm_at() for any other moment.
 	double get_bpm() const { return bpm; }
 	double us_per_beat() const { return 60e6 / bpm; }
 
@@ -39,13 +49,48 @@ public:
 		if (!playing) {
 			return r0;
 		}
-		return r0 + double(p_now_us - t0) / us_per_beat();
+		const Seg s = segment_at_time(p_now_us);
+		return s.r + double(p_now_us - s.t) * s.bpm / 60e6;
 	}
 
 	// The host time at which running position p_r is due (only meaningful while playing).
 	int64_t time_of(double p_r) const {
-		return t0 + int64_t(std::llround((p_r - r0) * us_per_beat()));
+		const Seg s = segment_at_running(p_r);
+		return s.t + int64_t(std::llround((p_r - s.r) * 60e6 / s.bpm));
 	}
+
+	// The tempo in force at running position p_r (pending changes counted).
+	double bpm_at(double p_r) const { return segment_at_running(p_r).bpm; }
+
+	// A tempo change at running position p_r, ahead of now (a clip's tempo map). Changes come in
+	// order; one before the last pending change replaces those after it.
+	void tempo_at(double p_r, double p_bpm) {
+		if (!playing || !(p_bpm > 0)) {
+			return;
+		}
+		while (!pending.empty() && pending.back().r >= p_r) {
+			pending.pop_back();
+		}
+		if (p_r <= r0) { // at or before the anchor (a clip's first beat at play): from the anchor on
+			bpm = p_bpm;
+			return;
+		}
+		pending.push_back(Seg{ p_r, time_of(p_r), p_bpm });
+	}
+
+	// The pending changes whose time has come become the anchor.
+	void settle(int64_t p_now_us) {
+		size_t n = 0;
+		while (n < pending.size() && pending[n].t <= p_now_us) {
+			r0 = pending[n].r, t0 = pending[n].t, bpm = pending[n].bpm;
+			n++;
+		}
+		pending.erase(pending.begin(), pending.begin() + long(n));
+	}
+
+	// Forget the pending changes (taken back by the driver, to hand out again).
+	void drop_pending() { pending.clear(); }
+	bool has_pending() const { return !pending.empty(); }
 
 	// The song position for running position p_r.
 	double song_at(double p_r) const {
@@ -68,13 +113,16 @@ public:
 		if (!playing) {
 			return;
 		}
+		settle(p_now_us);
 		r0 = running_at(p_now_us);
+		pending.clear();
 		playing = false;
 	}
 
 	// Back to song position 0, not playing.
 	void stop() {
 		playing = false;
+		pending.clear();
 		r0 = 0;
 		origin = 0;
 		update_loop_armed(0);
@@ -88,12 +136,17 @@ public:
 	}
 
 	void set_bpm(double p_bpm, int64_t p_now_us) {
-		if (!(p_bpm > 0) || p_bpm == bpm) {
+		if (!(p_bpm > 0)) {
+			return;
+		}
+		settle(p_now_us);
+		if (p_bpm == bpm && pending.empty()) {
 			return;
 		}
 		r0 = running_at(p_now_us);
 		t0 = p_now_us;
 		bpm = p_bpm;
+		pending.clear();
 	}
 
 	// A loop from p_start to p_end (song positions); p_end <= p_start turns looping off.
@@ -175,6 +228,33 @@ public:
 	}
 
 private:
+	struct Seg {
+		double r;
+		int64_t t;
+		double bpm;
+	};
+
+	Seg segment_at_time(int64_t p_t) const {
+		Seg s{ r0, t0, bpm };
+		for (const Seg &p : pending) {
+			if (p.t > p_t) {
+				break;
+			}
+			s = p;
+		}
+		return s;
+	}
+	Seg segment_at_running(double p_r) const {
+		Seg s{ r0, t0, bpm };
+		for (const Seg &p : pending) {
+			if (p.r > p_r) {
+				break;
+			}
+			s = p;
+		}
+		return s;
+	}
+
 	void update_loop_armed(double p_song_now) { loop_armed = looping && p_song_now < loop_end; }
 
 	double bpm = 120.0;
@@ -184,6 +264,7 @@ private:
 	double origin = 0; // song position = origin + running position (before any loop folding)
 	bool looping = false, loop_armed = false;
 	double loop_start = 0, loop_end = 0;
+	std::vector<Seg> pending; // tempo changes ahead, in order
 };
 
 } // namespace gaph::midi

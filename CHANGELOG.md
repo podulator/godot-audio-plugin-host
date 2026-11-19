@@ -1,5 +1,9 @@
 # Changelog
 
+## In development
+
+- **MIDI files and patterns:** `MidiClip`, imported from `.mid` (MIDI 1.0) and `.midi2` (MIDI 2.0 Clip File) files, loaded at run time with `load_file()`, or built in code. `MidiDriver.place_clip()` puts one on the song's timeline (seek and loop go through it, controllers and tempo are chased, its tempo map sets the tempo on the exact beat); `play_clip()` plays one from a moment on, any number of times. `MidiPart` mutes a part or its tracks, moves its channels, or removes it.
+
 ## 1.2.0 (2026-11-11)
 
 MIDI, and instrument plugins.

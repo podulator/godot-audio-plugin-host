@@ -27,6 +27,9 @@ enum class Kind : uint8_t {
 	// Internal, never sent by a driver: an instrument's "silence this note at once", for
 	// midi_stop's CUT (CLAP_EVENT_NOTE_CHOKE, or MIDI's All Sound Off where a plugin only speaks MIDI).
 	CHOKE,
+	// Internal to the driver, never sent to a target: a tempo change from a clip's tempo map, at
+	// its beat (value: 10 ns units per beat, as midi_clip.h's ClipTempo).
+	TEMPO,
 };
 
 // One message, as it travels inside: channel 1-16, values at MIDI 2.0 resolution.
@@ -36,6 +39,7 @@ struct Event {
 	uint16_t index = 0; // the note, or the controller number
 	uint32_t value = 0; // velocity (16 bits) or the 32-bit value
 	int64_t note_id = -1; // the MidiNote's id, for notes; -1 otherwise
+	int32_t part = -1; // the driver's: which clip part planned it, or -1 (targets ignore it)
 };
 
 // p_value, p_src_bits wide, scaled up to p_dst_bits (the specification's upscaling algorithm).
@@ -146,6 +150,9 @@ inline void encode_midi1(Kind p_kind, uint8_t p_channel, uint16_t p_index, uint3
 		case Kind::CHOKE:
 			r_bytes[0] = 0xB0 | ch, r_bytes[1] = 120, r_bytes[2] = 0;
 			return;
+		case Kind::TEMPO: // never reaches a plugin; a harmless no-op if it did
+			r_bytes[0] = 0xB0 | ch, r_bytes[1] = 0x7F, r_bytes[2] = 0;
+			return;
 	}
 }
 
@@ -180,6 +187,9 @@ inline void encode_midi2(Kind p_kind, uint8_t p_channel, uint16_t p_index, uint3
 			return;
 		case Kind::CHOKE:
 			r_words[0] = head(0xB, 120), r_words[1] = 0;
+			return;
+		case Kind::TEMPO:
+			r_words[0] = head(0xB, 0x7F), r_words[1] = 0;
 			return;
 	}
 }

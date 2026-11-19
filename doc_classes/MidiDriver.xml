@@ -175,10 +175,36 @@
 				Pitch bend for the whole channel; 0 is no bend.
 			</description>
 		</method>
+		<method name="place_clip">
+			<return type="MidiPart" />
+			<param index="0" name="clip" type="MidiClip" />
+			<param index="1" name="song_beat" type="float" default="0.0" />
+			<param index="2" name="repeats" type="int" default="1" />
+			<description>
+				Places [param clip] on the song's timeline at [param song_beat], as a part on a DAW's timeline, playing [param repeats] times one after the other (0: for ever). It moves with the music: [method seek] and [method set_loop] go through it as through the song, and started in the middle it first sends the controllers, programs, pitch bend and tempo in force there. At a loop's end its notes end, and it carries on from the loop's start. The clip's tempo map sets the tempo, each change on its exact beat ([signal tempo_changed] when it is heard). Stop, seek and loop keep it; [method MidiPart.remove] takes it away.
+				[codeblock]
+				midi.place_clip(load('res://music/theme.mid'))
+				midi.set_loop(0.0, 32.0)
+				midi.play()
+				[/codeblock]
+			</description>
+		</method>
 		<method name="play">
 			<return type="void" />
 			<description>
 				Starts the transport, or resumes after [method pause]: then each channel's last controller, pitch bend, pressure and program values are sent again first.
+			</description>
+		</method>
+		<method name="play_clip">
+			<return type="MidiPart" />
+			<param index="0" name="clip" type="MidiClip" />
+			<param index="1" name="at" type="float" default="-1.0" />
+			<param index="2" name="repeats" type="int" default="1" />
+			<description>
+				Plays [param clip] from [param at] on ([constant NOW], [method next], [method after] or [method at_beat]), [param repeats] times (0: for ever): a stinger on the next bar, say. It plays through whatever the song does (a loop does not fold it), ignores the clip's tempo map unless [method MidiPart.set_follow_tempo] turns it on, and, like notes planned ahead, is dropped by [method stop] and [method seek]. Started while the transport is stopped, it begins with [method play].
+				[codeblock]
+				midi.play_clip(fanfare, midi.next(4.0))
+				[/codeblock]
 			</description>
 		</method>
 		<method name="poly_aftertouch">

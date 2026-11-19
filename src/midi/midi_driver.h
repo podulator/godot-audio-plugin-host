@@ -21,6 +21,7 @@
 // music by itself: pause() does.
 
 #include "core/midi_sequencer.h"
+#include "midi_clip_resource.h"
 
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/ref_counted.hpp>
@@ -52,6 +53,35 @@ private:
 	ObjectID driver_id;
 	int64_t id = -1;
 	int channel = 0, key = 0;
+};
+
+// A clip playing, as place_clip() and play_clip() return it. Like MidiNote, it only refers to the
+// part: dropping it does not stop the part.
+class MidiPart : public RefCounted {
+	GDCLASS(MidiPart, RefCounted);
+
+public:
+	void remove();
+	bool is_playing() const; // still placed (a song part), or not finished yet
+	void set_muted(bool p_muted);
+	bool is_muted() const;
+	void set_track_muted(int p_track, bool p_muted);
+	bool is_track_muted(int p_track) const;
+	void set_channel(int p_from, int p_to);
+	void set_follow_tempo(bool p_follow);
+	bool get_follow_tempo() const;
+	Ref<MidiClip> get_clip() const { return clip; }
+
+	void setup(MidiDriver *p_driver, int32_t p_id, const Ref<MidiClip> &p_clip);
+
+protected:
+	static void _bind_methods();
+
+private:
+	MidiDriver *driver_or_null() const;
+	ObjectID driver_id;
+	int32_t id = -1;
+	Ref<MidiClip> clip;
 };
 
 class MidiDriver : public Node, private gaph::midi::Sink {
@@ -103,6 +133,11 @@ public:
 	void program_change(int p_channel, int p_program, double p_at);
 	void all_notes_off(double p_at);
 
+	// Clips: on the song's timeline, or from a moment on (core/midi_sequencer.h, "Clips").
+	Ref<MidiPart> place_clip(const Ref<MidiClip> &p_clip, double p_song_beat, int p_repeats);
+	Ref<MidiPart> play_clip(const Ref<MidiClip> &p_clip, double p_at, int p_repeats);
+	gaph::midi::Sequencer &sequencer() { return seq; } // for MidiPart
+
 	// The transport.
 	void play();
 	void pause();
@@ -135,6 +170,7 @@ private:
 	void beat(int64_t p_running_beat, double p_song_beat) override;
 	void looped(double p_running, double p_song_beat) override;
 	void transport(uint64_t p_target, int64_t p_time_us, const gaph::midi::TransportInfo &p_info) override;
+	void tempo(double p_bpm) override;
 
 	bool check_channel(int p_channel) const;
 	bool check_7bit(int p_value, const char *p_what) const;

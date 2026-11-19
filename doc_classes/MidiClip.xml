@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="MidiClip" inherits="Resource" api_type="extension" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		A piece of MIDI on a beat timeline: an imported MIDI file, or a pattern built in code.
+	</brief_description>
+	<description>
+		A [MidiDriver] plays it: [method MidiDriver.place_clip] puts it on the song's timeline, [method MidiDriver.play_clip] plays it from a moment on.
+		[b]From a file:[/b] a [code].mid[/code] (Standard MIDI File, MIDI 1.0) or [code].midi2[/code] (MIDI Clip File, MIDI 2.0) in the project is imported as a [MidiClip], so [code]load("res://music/theme.mid")[/code] gives one, and an exported game carries the clip rather than the file. [method load_file] reads one at run time from anywhere, a [code]user://[/code] folder say.
+		[codeblock]
+		var song: MidiClip = load("res://music/theme.mid")
+		midi.set_channel_target(1, $Piano.stream)
+		midi.place_clip(song)
+		midi.play()
+		[/codeblock]
+		[b]A pattern in code:[/b] values in the clip's [member midi_version] range, positions and lengths in beats.
+		[codeblock]
+		var beat := MidiClip.new()
+		beat.length = 4.0
+		for i in 4:
+		    beat.add_note(i, 10, 36, 110, 0.25)          # a kick on every beat, channel 10
+		beat.add_note(1.0, 10, 38, 100, 0.25)            # and a snare on 2
+		midi.play_clip(beat, midi.next(4.0), 0)          # from the next bar, for ever
+		[/codeblock]
+		Positions are in beats, so a clip plays at any tempo; a file's own tempo map is kept beside the events (see [method get_tempo_map]). Notes are stored whole, with their length, so a clip started in the middle still ends every note it starts. Values are held at MIDI 2.0 resolution inside, whatever the file's version, so a clip of either version plays on a driver of either version.
+		Editing a clip that a part is playing leaves that part as it was: the next [method MidiDriver.place_clip] or [method MidiDriver.play_clip] plays the edit.
+		What a file reader keeps: notes, controllers, pitch bend, pressures, program changes (with a MIDI 2.0 program's bank as bank select), tempo, time signature and track names. What it skips: SysEx, groups (everything plays on channels 1-16), and MIDI 2.0 per-note controllers and pitch bend.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="add_event">
+			<return type="void" />
+			<param index="0" name="beat" type="float" />
+			<param index="1" name="kind" type="int" />
+			<param index="2" name="channel" type="int" />
+			<param index="3" name="index" type="int" />
+			<param index="4" name="value" type="int" />
+			<param index="5" name="track" type="int" default="0" />
+			<description>
+				Adds a message other than a note at [param beat]: [param kind] is [constant MidiDriver.EVENT_CONTROL] (with [param index] the controller), [constant MidiDriver.EVENT_PITCH_BEND], [constant MidiDriver.EVENT_POLY_PRESSURE] (with [param index] the note), [constant MidiDriver.EVENT_CHANNEL_PRESSURE] or [constant MidiDriver.EVENT_PROGRAM] (with [param value] the program). [param value] is in this clip's MIDI version's range, as [MidiDriver] takes it. The clip grows to reach it.
+			</description>
+		</method>
+		<method name="add_note">
+			<return type="void" />
+			<param index="0" name="beat" type="float" />
+			<param index="1" name="channel" type="int" />
+			<param index="2" name="key" type="int" />
+			<param index="3" name="velocity" type="int" />
+			<param index="4" name="length" type="float" />
+			<param index="5" name="track" type="int" default="0" />
+			<description>
+				Adds a note at [param beat], [param length] beats long, on [param channel] (1-16), with [param velocity] in this clip's MIDI version's range (1 and up: 0 is no note). The clip's [member length] grows to reach its end. [param track] groups events, for [method MidiPart.set_track_muted].
+			</description>
+		</method>
+		<method name="clear">
+			<return type="void" />
+			<description>
+				Removes every event, tempo and meter, and sets [member length] to 0. [member midi_version] stays.
+			</description>
+		</method>
+		<method name="from_bytes" qualifiers="static">
+			<return type="MidiClip" />
+			<param index="0" name="bytes" type="PackedByteArray" />
+			<description>
+				Reads a MIDI file from its bytes: a Standard MIDI File or a MIDI Clip File, told apart by their first bytes. Returns [code]null[/code], with an error printed, for anything else, or a damaged file.
+			</description>
+		</method>
+		<method name="get_bpm" qualifiers="const">
+			<return type="float" />
+			<description>
+				The first tempo of the clip's tempo map, or 120 if it has none (the files' own default).
+			</description>
+		</method>
+		<method name="get_event_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				How many events the clip holds; a note counts once.
+			</description>
+		</method>
+		<method name="get_events" qualifiers="const">
+			<return type="Dictionary[]" />
+			<description>
+				Every event, in order, as a [Dictionary] with [code]beat[/code], [code]length[/code] (notes only), [code]track[/code], [code]kind[/code] (a [enum MidiDriver.EventKind]), [code]channel[/code], [code]index[/code] (the note or controller) and [code]value[/code], in this clip's MIDI version's range.
+			</description>
+		</method>
+		<method name="get_tempo_map" qualifiers="const">
+			<return type="Dictionary[]" />
+			<description>
+				The tempo changes, as a [Dictionary] each with [code]beat[/code] and [code]bpm[/code]. Played with [method MidiDriver.place_clip], they set the driver's tempo, each on its exact beat.
+			</description>
+		</method>
+		<method name="load_file" qualifiers="static">
+			<return type="MidiClip" />
+			<param index="0" name="path" type="String" />
+			<description>
+				Reads a MIDI file from [param path]: [code]res://[/code], [code]user://[/code] or an absolute path. Returns [code]null[/code], with an error printed, if it cannot be read or is not a MIDI file. In the project, [code]load()[/code] does the same through the importer.
+			</description>
+		</method>
+		<method name="set_meter">
+			<return type="void" />
+			<param index="0" name="beat" type="float" />
+			<param index="1" name="numerator" type="int" />
+			<param index="2" name="denominator" type="int" />
+			<description>
+				A time signature from [param beat] on: [param numerator] over [param denominator], a power of two. The first one decides how long a bar is, which a file's [member length] is rounded up to.
+			</description>
+		</method>
+		<method name="set_tempo">
+			<return type="void" />
+			<param index="0" name="beat" type="float" />
+			<param index="1" name="bpm" type="float" />
+			<description>
+				A tempo change at [param beat], replacing one already there.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="event_data" type="PackedFloat64Array" setter="set_event_data" getter="get_event_data" default="PackedFloat64Array()">
+			Storage: the events packed as numbers, seven per event. Saved with the clip, not shown in the inspector; read them with [method get_events].
+		</member>
+		<member name="length" type="float" setter="set_length" getter="get_length" default="0.0">
+			How long the clip is, in beats: a repeat starts again after it. A file's length is its end rounded up to a whole bar; a pattern's grows as notes are added, and may be set by hand (a one-bar pattern whose last note ends early, say).
+		</member>
+		<member name="meter_data" type="PackedFloat64Array" setter="set_meter_data" getter="get_meter_data" default="PackedFloat64Array()">
+			Storage: the time signatures packed as numbers.
+		</member>
+		<member name="midi_version" type="int" setter="set_midi_version" getter="get_midi_version" default="1">
+			1 or 2: the version a file stated (a [code].mid[/code] is always 1; a MIDI Clip File is 2 if it holds any MIDI 2.0 message), and the range [method add_note] and [method add_event] take values in. It changes no values held: they are at full resolution inside.
+		</member>
+		<member name="tempo_data" type="PackedFloat64Array" setter="set_tempo_data" getter="get_tempo_data" default="PackedFloat64Array()">
+			Storage: the tempo map packed as numbers.
+		</member>
+		<member name="track_names" type="PackedStringArray" setter="set_track_names" getter="get_track_names" default="PackedStringArray()">
+			The tracks' names, from the file's track name events, in order; empty strings for tracks without one.
+		</member>
+	</members>
+</class>

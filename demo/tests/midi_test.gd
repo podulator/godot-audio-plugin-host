@@ -22,6 +22,9 @@ func _ready() -> void:
 	await _test_signals()
 	await _test_transport()
 	await _test_chase_notes()
+	_test_clip_import()
+	await _test_place_clip()
+	await _test_pattern()
 	print("MIDI %s" % ("OK" if failures == 0 else "FAILED (%d)" % failures))
 	get_tree().quit(1 if failures else 0)
 
@@ -179,4 +182,83 @@ func _test_chase_notes() -> void:
 	await _frames(0.1)
 	var on := rec.of(MidiDriver.EVENT_NOTE_ON)
 	_check(on.size() == 2 and on[1].note_id == n.get_id() and n.is_sounding(), "chase_notes: on resume the same note starts again (%d note-ons)" % on.size())
+	midi.queue_free()
+
+
+# A .mid in the project is imported as a MidiClip; load_file() reads the same file at run time.
+func _test_clip_import() -> void:
+	var clip = load("res://tests/data/four_notes.mid")
+	_check(clip is MidiClip, "a .mid in the project loads as a MidiClip (%s)" % [clip])
+	if not clip is MidiClip:
+		return
+	_check(clip.track_names == PackedStringArray(["Tempo", "Piano"]), "its track names (%s)" % [clip.track_names])
+	_check(clip.get_event_count() == 6 and clip.length == 4.0, "6 events, 4 beats (%d, %.2f)" % [clip.get_event_count(), clip.length])
+	var tempos: Array = clip.get_tempo_map()
+	_check(tempos.size() == 2 and is_equal_approx(tempos[1].bpm, 60.0) and tempos[1].beat == 2.0, "its tempo map: 120, then 60 at beat 2 (%s)" % [tempos])
+	var notes: Array = clip.get_events().filter(func(e): return e.kind == MidiDriver.EVENT_NOTE_ON)
+	_check(notes.size() == 4 and notes[1].beat == 1.0 and notes[1].length == 0.5 and notes[1].index == 61 and notes[1].value == 100, "its notes, in MIDI 1.0 values (%s)" % [notes[1] if notes.size() > 1 else "none"])
+	var direct := MidiClip.load_file(ProjectSettings.globalize_path("res://tests/data/four_notes.mid"))
+	_check(direct != null and direct.get_event_data() == clip.get_event_data(), "load_file() reads the same clip at run time")
+
+
+# A clip on the song's timeline, following its tempo map: the notes on beats 0 and 1 are 500 ms
+# apart, those on 2 and 3 a second (60 bpm from beat 2); tempo_changed says 60, and the target
+# hears the change as a transport snapshot. Seeking into it chases the program and controller.
+func _test_place_clip() -> void:
+	var clip: MidiClip = load("res://tests/data/four_notes.mid")
+	var midi := MidiDriver.create(1)
+	add_child(midi)
+	var rec := Recorder.new()
+	midi.set_channel_target(1, rec)
+	var tempos: Array[float] = []
+	midi.tempo_changed.connect(func(bpm: float) -> void: tempos.append(bpm))
+	var part := midi.place_clip(clip)
+	midi.play()
+	await _frames(3.4)
+	var on := rec.of(MidiDriver.EVENT_NOTE_ON)
+	_check(on.size() == 4, "the clip's 4 notes (%d)" % on.size())
+	if on.size() == 4:
+		_check(on[1].time_us - on[0].time_us == BEAT_US, "beats 0-1 at 120 bpm: %d us" % (on[1].time_us - on[0].time_us))
+		_check(on[2].time_us - on[1].time_us == BEAT_US, "beats 1-2 at 120 bpm: %d us" % (on[2].time_us - on[1].time_us))
+		_check(on[3].time_us - on[2].time_us == 2 * BEAT_US, "beats 2-3 at 60 bpm: %d us" % (on[3].time_us - on[2].time_us))
+	_check(tempos.has(60.0) and is_equal_approx(midi.bpm, 60.0), "tempo_changed(60), and bpm is 60 (%s, %.2f)" % [tempos, midi.bpm])
+	_check(rec.transports.any(func(t): return is_equal_approx(t.bpm, 60.0) and is_equal_approx(t.song_beat, 2.0)), "the target hears 60 bpm from beat 2")
+	_check(part.is_playing(), "a song part stays placed after it played")
+	rec.events.clear()
+	midi.seek(1.5)
+	await _frames(0.1)
+	_check(rec.events.size() >= 2 and rec.events[0].kind == MidiDriver.EVENT_PROGRAM and rec.events[0].value == 7 and rec.events[1].kind == MidiDriver.EVENT_CONTROL and rec.events[1].index == 7,
+			"a seek into the clip sends its program and volume first (%s)" % [rec.events.slice(0, 2)])
+	part.remove()
+	_check(not part.is_playing(), "remove() takes it away")
+	midi.queue_free()
+
+
+# A pattern built in code, played twice from the next beat: 8 notes, a quarter beat apart, then the
+# part is done. It saves and loads back the same.
+func _test_pattern() -> void:
+	var p := MidiClip.new()
+	p.length = 1.0
+	for i in 4:
+		p.add_note(i * 0.25, 10, 36 + i, 100, 0.125)
+	p.add_event(0.0, MidiDriver.EVENT_CONTROL, 10, 7, 90)
+	_check(p.get_event_count() == 5, "a pattern of 4 notes and a controller")
+	ResourceSaver.save(p, "user://pattern_test.tres")
+	var back: MidiClip = ResourceLoader.load("user://pattern_test.tres", "", ResourceLoader.CACHE_MODE_IGNORE)
+	_check(back != null and back.get_event_data() == p.get_event_data() and back.length == 1.0, "saved and loaded back unchanged")
+	var midi := MidiDriver.create(1)
+	add_child(midi)
+	var rec := Recorder.new()
+	midi.set_channel_target(10, rec)
+	midi.play()
+	await _frames(0.1)
+	var part := midi.play_clip(p, midi.next(1.0), 2)
+	await _frames(2.5)
+	var on := rec.of(MidiDriver.EVENT_NOTE_ON)
+	_check(on.size() == 8, "played twice: 8 notes (%d)" % on.size())
+	var even := on.size() == 8
+	for i in range(1, on.size()):
+		even = even and on[i].time_us - on[i - 1].time_us == BEAT_US / 4
+	_check(even, "each a quarter beat after the last, exactly")
+	_check(not part.is_playing(), "done after its 2 rounds")
 	midi.queue_free()
