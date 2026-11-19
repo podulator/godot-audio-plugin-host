@@ -305,6 +305,16 @@ void ClapInstrument::midi_controller(int p_channel, int p_controller, int p_valu
 	}
 }
 
+// In Debugger > Monitors, as "Plugins/<name> (DSP %)": the plugin's name if p_name is empty.
+void ClapInstrument::register_monitor(const String &p_name) {
+	ensure_loaded();
+	String name = p_name;
+	if (name.is_empty()) {
+		name = String(get_plugin_info().get("name", "Plugin"));
+	}
+	dsp_monitor.register_as(this, name);
+}
+
 double ClapInstrument::get_parameter(int64_t p_id) {
 	ensure_loaded();
 	return hosted.get_param(uint32_t(p_id));
@@ -478,6 +488,10 @@ void ClapInstrument::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_parameter_modulation", "id"), &ClapInstrument::get_parameter_modulation);
 	ClassDB::bind_method(D_METHOD("get_presets"), &ClapInstrument::get_presets);
 	ClassDB::bind_method(D_METHOD("learn_parameter", "id"), &ClapInstrument::learn_parameter);
+	ClassDB::bind_method(D_METHOD("get_dsp_load"), &ClapInstrument::get_dsp_load);
+	ClassDB::bind_method(D_METHOD("get_dsp_peak"), &ClapInstrument::get_dsp_peak);
+	ClassDB::bind_method(D_METHOD("register_monitor", "name"), &ClapInstrument::register_monitor, DEFVAL(String()));
+	ClassDB::bind_method(D_METHOD("unregister_monitor"), &ClapInstrument::unregister_monitor);
 	ClassDB::bind_method(D_METHOD("cancel_learn"), &ClapInstrument::cancel_learn);
 	ClassDB::bind_method(D_METHOD("is_learning"), &ClapInstrument::is_learning);
 	ClassDB::bind_method(D_METHOD("map_controller", "channel", "controller", "id"), &ClapInstrument::map_controller);

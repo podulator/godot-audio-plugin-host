@@ -43,6 +43,7 @@ func _ready() -> void:
 		await _test_presets(path)
 		await _test_notes_out(path)
 		await _test_midi_learn(path)
+		await _test_dsp_monitor(path)
 	var vst3_notes := TestUtilScript.own_plugin("gaph_test_vst3_instrument.vst3")
 	var vst3_transport := TestUtilScript.own_plugin("gaph_test_vst3_transport.vst3")
 	if not DirAccess.dir_exists_absolute(vst3_notes) or not DirAccess.dir_exists_absolute(vst3_transport):
@@ -841,3 +842,30 @@ func _test_midi_learn(path: String) -> void:
 	midi.panic()
 	input.queue_free()
 	await _unrig(r)
+
+
+# What a plugin costs: a playing instrument reports its DSP load (above 0, far below 100 % for the
+# test instrument), a peak at least as high; register_monitor() puts it in Debugger > Monitors
+# (Performance's custom monitors), reading the same value; freeing the instrument takes it out.
+func _test_dsp_monitor(path: String) -> void:
+	var r := await _rig(path, CLAP_ID, "Inst_Dsp")
+	var inst: ClapInstrument = r.inst
+	var midi: MidiDriver = r.midi
+	midi.set_channel_target(1, inst)
+	midi.note_on(1, 60, 100)
+	await get_tree().create_timer(1.0).timeout
+	var load: float = inst.get_dsp_load()
+	var peak: float = inst.get_dsp_peak()
+	_check(load > 0.0 and load < 50.0 and peak >= load, "DSP load %.4f %%, peak %.4f %%" % [load, peak])
+	inst.register_monitor("Test Synth")
+	var id := &"Plugins/Test Synth (DSP %)"
+	_check(Performance.has_custom_monitor(id), "register_monitor(): in Debugger > Monitors as %s" % id)
+	var shown: float = Performance.get_custom_monitor(id)
+	_check(shown > 0.0 and absf(shown - inst.get_dsp_load()) < 1.0, "the monitor reads the plugin's load (%.4f %%)" % shown)
+	midi.panic()
+	await _unrig(r)
+	r.clear()
+	inst = null
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_check(not Performance.has_custom_monitor(id), "freeing the instrument takes its monitor out")

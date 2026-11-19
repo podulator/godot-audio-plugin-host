@@ -169,6 +169,18 @@ public:
 	bool gui_wants_live_instance();
 
 	size_t instance_count() { return registry.size(); }
+	// MAIN THREAD. The plugin's DSP load (EffectRuntime::get_dsp_load): summed over its running
+	// instances, as they all cost CPU; and the worst block since the last call.
+	double dsp_load() {
+		double sum = 0.0;
+		registry.for_each([&](EffectRuntime &r) { sum += r.get_dsp_load(); });
+		return sum;
+	}
+	double take_dsp_peak() {
+		double peak = 0.0;
+		registry.for_each([&](EffectRuntime &r) { peak = std::max(peak, r.take_dsp_peak()); });
+		return peak;
+	}
 	// MAIN THREAD. Every running instance's runtime, with the registry locked: p_fn must not add or
 	// remove effects (collect, then act).
 	template <typename F>

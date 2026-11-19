@@ -7,6 +7,7 @@
 // events, controllers through the plugin's IMidiMapping, the transport per process() call
 // (the runtime splits a block where it changes).
 
+#include "godot_common/dsp_monitor.h"
 #include "godot_common/midi_learn.h"
 #include "godot_common/midi_out_tap.h"
 #include "core/effect_runtime.h"
@@ -87,6 +88,12 @@ public:
 	void unmap_parameter(int64_t p_id) { learn.unmap(p_id); }
 	void clear_midi_map() { learn.clear(); }
 	void midi_controller(int p_channel, int p_controller, int p_value);
+
+	// What the plugin costs (godot_common/dsp_monitor.h), in percent of the audio's real time.
+	double get_dsp_load() { return gaph_godot::DspMonitor::load_percent(hosted); }
+	double get_dsp_peak() { return gaph_godot::DspMonitor::peak_percent(hosted); }
+	void register_monitor(const String &p_name);
+	void unregister_monitor() { dsp_monitor.unregister(); }
 	void set_midi_map(const Dictionary &p_map) { learn.from_dictionary(p_map); }
 	Dictionary get_midi_map() const { return learn.to_dictionary(); }
 	bool load_preset(const String &p_id);
@@ -152,6 +159,7 @@ private:
 	mutable gaph::HostedEffect hosted; // mutable: see ClapInstrument
 	gaph_godot::MidiOutTap midi_out;
 	gaph_godot::MidiLearn learn;
+	gaph_godot::DspMonitor dsp_monitor; // takes its monitor out of Performance when the resource goes
 	gaph_godot::InstrumentInput input;
 	gaph_godot::SharedVoice voice; // the one plugin instance all playbacks hear
 	PackedStringArray output_names; // from the plugin, when it loads; the main output first

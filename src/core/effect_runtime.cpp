@@ -1,5 +1,7 @@
 #include "effect_runtime.h"
 
+#include <chrono>
+
 #include <algorithm>
 #include <cmath>
 
@@ -61,6 +63,22 @@ bool EffectRuntime::queue_param(uint32_t p_param_id, double p_value, int64_t p_d
 	ev.value = p_value;
 	ev.due_us = p_due_us;
 	return param_queue.push(ev);
+}
+
+// AUDIO THREAD. One process() call: its share of its frames' real time, into the decaying average
+// (about a second's worth of calls) and the peak.
+void EffectRuntime::measure(int64_t p_spent_ns, uint32_t p_frames) {
+	if (p_frames == 0) {
+		return;
+	}
+	const double block_ns = double(p_frames) * 1e9 / clock.get_rate();
+	const double load = double(p_spent_ns) / block_ns;
+	const double calls_per_second = clock.get_rate() / double(p_frames);
+	const double k = 1.0 / (calls_per_second > 1 ? calls_per_second : 1.0);
+	dsp_load.store(dsp_load.load(std::memory_order_relaxed) * (1.0 - k) + load * k, std::memory_order_relaxed);
+	if (load > dsp_peak.load(std::memory_order_relaxed)) {
+		dsp_peak.store(load, std::memory_order_relaxed);
+	}
 }
 
 bool EffectRuntime::queue_ramp(uint32_t p_param_id, double p_from, double p_to, double p_seconds, int64_t p_due_us) {
@@ -389,7 +407,10 @@ void EffectRuntime::process_chunk(const float *p_src, float *p_dst, uint32_t p_f
 		block.extra_output_count = extra_dst_count;
 	}
 
-	if (!processor->process(block)) {
+	const auto dsp_start = std::chrono::steady_clock::now();
+	const bool processed = processor->process(block);
+	measure(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - dsp_start).count(), p_frames);
+	if (!processed) {
 		// The plugin refused or failed: pass the input through rather than output garbage, or
 		// silence that would sound like a broken bus.
 		std::memcpy(p_dst, p_src, sizeof(float) * CHANNELS * p_frames);

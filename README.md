@@ -97,6 +97,17 @@ The Add Effect menu lists effects only: instruments play as [audio streams](#ins
 
 Setting `plugin_state` from a script loads a preset: it replaces every value set by hand so far.
 
+## What plugins cost
+
+Every effect and instrument measures its plugin's processing, in percent of the audio's real time (100 % would make the audio miss its deadline):
+
+```gdscript
+print(synth.get_dsp_load(), " %, peak ", synth.get_dsp_peak(), " %")
+synth.register_monitor("Lead synth")             # in Debugger > Monitors while the game runs
+```
+
+The load is averaged over about a second and summed over the plugin's instances; the peak is the worst block since it was last read. Useful on Android especially, where a heavy plugin shows up before the audio breaks.
+
 ## MIDI learn
 
 Hardware knobs and faders move plugin parameters, through a `MidiInput`:

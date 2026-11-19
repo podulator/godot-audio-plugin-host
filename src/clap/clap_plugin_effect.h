@@ -15,6 +15,7 @@
 // These two names are CLAP-specific on purpose: the VST3 extension has its own pair. Two
 // extensions registering the same class name is a hard load failure in Godot.
 
+#include "godot_common/dsp_monitor.h"
 #include "godot_common/midi_learn.h"
 #include "godot_common/midi_out_tap.h"
 #include "clap_processor.h"
@@ -111,6 +112,12 @@ public:
 	void unmap_parameter(int64_t p_id) { learn.unmap(p_id); }
 	void clear_midi_map() { learn.clear(); }
 	void midi_controller(int p_channel, int p_controller, int p_value);
+
+	// What the plugin costs (godot_common/dsp_monitor.h), in percent of the audio's real time.
+	double get_dsp_load() { return gaph_godot::DspMonitor::load_percent(hosted); }
+	double get_dsp_peak() { return gaph_godot::DspMonitor::peak_percent(hosted); }
+	void register_monitor(const String &p_name);
+	void unregister_monitor() { dsp_monitor.unregister(); }
 	void set_midi_map(const Dictionary &p_map) { learn.from_dictionary(p_map); }
 	Dictionary get_midi_map() const { return learn.to_dictionary(); }
 	bool load_preset(const String &p_id);
@@ -172,6 +179,7 @@ private:
 	gaph::HostedEffect hosted;
 	gaph_godot::MidiOutTap midi_out;
 	gaph_godot::MidiLearn learn;
+	gaph_godot::DspMonitor dsp_monitor; // takes its monitor out of Performance when the resource goes
 	gaph_godot::EffectTempo tempo;
 	gaph_godot::EditorWindow editor_window;
 };

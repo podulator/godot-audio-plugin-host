@@ -290,6 +290,16 @@ void Vst3Instrument::midi_controller(int p_channel, int p_controller, int p_valu
 	}
 }
 
+// In Debugger > Monitors, as "Plugins/<name> (DSP %)": the plugin's name if p_name is empty.
+void Vst3Instrument::register_monitor(const String &p_name) {
+	ensure_loaded();
+	String name = p_name;
+	if (name.is_empty()) {
+		name = String(get_plugin_info().get("name", "Plugin"));
+	}
+	dsp_monitor.register_as(this, name);
+}
+
 double Vst3Instrument::get_parameter(int64_t p_id) {
 	ensure_loaded();
 	return hosted.get_param(uint32_t(p_id));
@@ -461,6 +471,10 @@ void Vst3Instrument::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_parameter_modulation", "id"), &Vst3Instrument::get_parameter_modulation);
 	ClassDB::bind_method(D_METHOD("get_presets"), &Vst3Instrument::get_presets);
 	ClassDB::bind_method(D_METHOD("learn_parameter", "id"), &Vst3Instrument::learn_parameter);
+	ClassDB::bind_method(D_METHOD("get_dsp_load"), &Vst3Instrument::get_dsp_load);
+	ClassDB::bind_method(D_METHOD("get_dsp_peak"), &Vst3Instrument::get_dsp_peak);
+	ClassDB::bind_method(D_METHOD("register_monitor", "name"), &Vst3Instrument::register_monitor, DEFVAL(String()));
+	ClassDB::bind_method(D_METHOD("unregister_monitor"), &Vst3Instrument::unregister_monitor);
 	ClassDB::bind_method(D_METHOD("cancel_learn"), &Vst3Instrument::cancel_learn);
 	ClassDB::bind_method(D_METHOD("is_learning"), &Vst3Instrument::is_learning);
 	ClassDB::bind_method(D_METHOD("map_controller", "channel", "controller", "id"), &Vst3Instrument::map_controller);

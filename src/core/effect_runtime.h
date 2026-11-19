@@ -66,6 +66,13 @@ public:
 	bool has_processor() const { return processor != nullptr; }
 	// MAIN THREAD only, and only for the calls PluginProcessor marks as main-thread.
 	PluginProcessor *get_processor() { return processor.get(); }
+
+	// DSP LOAD: how much of each block's real time the plugin's process() takes, measured around
+	// it on the audio thread (two clock reads a block). The average decays over about a second;
+	// the peak holds the worst block since the last take_dsp_peak(). Fractions: 1.0 is the whole
+	// block (the plugin alone would miss the deadline). ANY THREAD.
+	double get_dsp_load() const { return dsp_load.load(std::memory_order_relaxed); }
+	double take_dsp_peak() { return dsp_peak.exchange(0.0, std::memory_order_relaxed); }
 	// MAIN THREAD. MIDI the plugin sent out, with the host time each is heard at (MidiOut).
 	bool pop_output_midi(MidiOut &r_event) { return output_midi.pop(r_event); }
 
@@ -133,6 +140,8 @@ private:
 	uint32_t extra_dst_count = 0;
 
 	std::atomic<uint64_t> frames_processed{ 0 };
+	std::atomic<double> dsp_load{ 0.0 }, dsp_peak{ 0.0 };
+	void measure(int64_t p_spent_ns, uint32_t p_frames);
 	std::unique_ptr<PluginProcessor> processor;
 	RtQueue<ParamEvent> param_queue;
 	RtQueue<MidiOut> output_midi{ 1024 }; // audio thread -> main thread

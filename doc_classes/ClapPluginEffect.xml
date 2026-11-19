@@ -68,6 +68,18 @@
 				The plugins that crashed the program (the editor or a game) while their own code was running: their paths. Such a plugin is not loaded again (its [method get_load_error] says why) until its file changes (an update), or [method clear_crashed_plugin]. One list for CLAP and VST3, kept in Godot's per-user config folder.
 			</description>
 		</method>
+		<method name="get_dsp_load">
+			<return type="float" />
+			<description>
+				What the plugin costs: the time its processing takes, in percent of the audio's real time, averaged over about a second and summed over its running instances (an effect Godot runs per channel pair counts each). 100 means the plugin alone would make the audio miss its deadline. Cheap to call; measured on the audio thread around each processing call.
+			</description>
+		</method>
+		<method name="get_dsp_peak">
+			<return type="float" />
+			<description>
+				The worst single block since the last call, in percent of its real time: the spikes [method get_dsp_load] averages away. Reading it starts a new peak.
+			</description>
+		</method>
 		<method name="get_frames_processed">
 			<return type="int" />
 			<description>
@@ -216,6 +228,13 @@
 				Works in the editor and in a running game, on Linux, Windows and macOS: a game can show a plugin's real interface (a synth's panel in a music app, say).
 			</description>
 		</method>
+		<method name="register_monitor">
+			<return type="void" />
+			<param index="0" name="name" type="String" default="&quot;&quot;" />
+			<description>
+				Shows [method get_dsp_load] in the editor's [b]Debugger &gt; Monitors[/b] panel while the game runs, as [code]Plugins/&lt;name&gt; (DSP %)[/code], [param name] defaulting to the plugin's name. Removed again when this resource is freed, or with [method unregister_monitor].
+			</description>
+		</method>
 		<method name="scan_plugins" qualifiers="static">
 			<return type="Dictionary[]" />
 			<param index="0" name="extra_dirs" type="PackedStringArray" default="PackedStringArray()" />
@@ -283,6 +302,12 @@
 			<param index="0" name="id" type="int" />
 			<description>
 				Removes the mapping to parameter [param id].
+			</description>
+		</method>
+		<method name="unregister_monitor">
+			<return type="void" />
+			<description>
+				Takes the monitor [method register_monitor] added out of the Monitors panel.
 			</description>
 		</method>
 	</methods>
