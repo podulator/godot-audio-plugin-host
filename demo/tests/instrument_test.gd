@@ -39,6 +39,7 @@ func _ready() -> void:
 		await _test_note_expressions(path)
 		await _test_effect_tempo()
 		await _test_ramps_and_modulation(path)
+		await _test_presets(path)
 	var vst3_notes := TestUtilScript.own_plugin("gaph_test_vst3_instrument.vst3")
 	var vst3_transport := TestUtilScript.own_plugin("gaph_test_vst3_transport.vst3")
 	if not DirAccess.dir_exists_absolute(vst3_notes) or not DirAccess.dir_exists_absolute(vst3_transport):
@@ -47,6 +48,7 @@ func _ready() -> void:
 		await _test_vst3_notes(vst3_notes)
 		await _test_vst3_transport(vst3_transport)
 		await _test_saving(vst3_notes, "VST3")
+		await _test_vst3_presets(vst3_notes)
 		var vst3_drums := TestUtilScript.own_plugin("gaph_test_vst3_drums.vst3")
 		if DirAccess.dir_exists_absolute(vst3_drums):
 			await _test_outputs(vst3_drums, "", "VST3")
@@ -657,3 +659,104 @@ func _test_ramps_and_modulation(path: String) -> void:
 		_check(back.size() > 0 and is_equal_approx(back[back.size() - 1].x, 0.25), "%s: modulation 0 ends it (%.4f)" % [format, back[back.size() - 1].x if back.size() > 0 else -1.0])
 		midi.panic()
 		await _unrig(r)
+
+
+# Presets: the test instrument's preset-discovery factory lists Half and Quarter (and not Other,
+# which names only its MIDI sibling), plus a .gtp file from the user folder; loading one changes
+# the sound of the instrument already playing (Master: a note's level 0.25 x Master).
+func _test_presets(path: String) -> void:
+	DirAccess.make_dir_recursive_absolute("user://presets")
+	var f := FileAccess.open("user://presets/Eighth.gtp", FileAccess.WRITE)
+	f.store_string("0.125")
+	f.close()
+	OS.set_environment("GAPH_TEST_PRESET_DIR", ProjectSettings.globalize_path("user://presets"))
+	var r := await _rig(path, CLAP_ID, "Inst_Presets")
+	var inst: ClapInstrument = r.inst
+	var presets: Array = inst.get_presets()
+	var names := presets.map(func(p): return p.name)
+	_check(names == ["Half", "Quarter", "Eighth"], "the plugin's presets, its own only, the user folder's too (%s)" % [names])
+	var half: Dictionary = presets.filter(func(p): return p.name == "Half")[0] if names.has("Half") else {}
+	_check(half.get("creator", "") == "GAPH" and half.get("tags", PackedStringArray()) == PackedStringArray(["quiet"]), "a preset's creator and tags (%s)" % [half])
+	var midi: MidiDriver = r.midi
+	midi.set_channel_target(1, inst)
+	midi.note_on(1, 60, 127) # held
+	await get_tree().create_timer(0.3).timeout
+	_check(inst.load_preset(half.get("id", "")) and is_equal_approx(inst.get_parameter(1), 0.5), "load_preset(Half): Master 0.5 (%.3f)" % inst.get_parameter(1))
+	await get_tree().create_timer(0.2).timeout
+	var a := await _collect(r.cap, 0.1)
+	_check(a.size() > 0 and is_equal_approx(a[a.size() - 1].x, 0.125), "... and the playing instrument sounds it: 0.125 (%.4f)" % (a[a.size() - 1].x if a.size() > 0 else -1.0))
+	var eighth: Dictionary = presets.filter(func(p): return p.name == "Eighth")[0] if names.has("Eighth") else {}
+	_check(inst.load_preset(eighth.get("id", "")), "load_preset(Eighth), a preset file")
+	await get_tree().create_timer(0.2).timeout
+	var b := await _collect(r.cap, 0.1)
+	_check(b.size() > 0 and is_equal_approx(b[b.size() - 1].x, 0.03125), "... 0.03125 (%.5f)" % (b[b.size() - 1].x if b.size() > 0 else -1.0))
+	_check(not inst.get_plugin_state().is_empty(), "the preset's sound is the saved state")
+	midi.panic()
+	await _unrig(r)
+	var other := ClapInstrument.new()
+	other.plugin_path = path
+	other.plugin_id = MIDI_ID
+	var other_names: Array = other.get_presets().map(func(p): return p.name)
+	_check(other_names.has("Other") and not other_names.has("Half"), "the MIDI sibling lists only its own (%s)" % [other_names])
+	OS.set_environment("GAPH_TEST_PRESET_DIR", "")
+
+
+# VST3 presets: the test instrument's program list (Levels: Full, Half), and a .vstpreset file in a
+# GAPH_VST3_PRESET_PATH folder, written here: the VST3 header with the plugin's class id, then its
+# component state (Volume as a double) in a Comp chunk. Each changes the playing instrument.
+func _test_vst3_presets(path: String) -> void:
+	var inst := Vst3Instrument.new()
+	inst.plugin_path = path
+	var class_id: String = inst.get_plugin_info().get("id", "")
+	var dir := ProjectSettings.globalize_path("user://vst3presets")
+	DirAccess.make_dir_recursive_absolute(dir)
+	var comp := PackedByteArray()
+	comp.resize(8)
+	comp.encode_double(0, 0.25)
+	var file := PackedByteArray("VST3".to_ascii_buffer())
+	var head := PackedByteArray()
+	head.resize(4)
+	head.encode_s32(0, 1)
+	file.append_array(head)
+	file.append_array(class_id.to_ascii_buffer())
+	var list_at := 48 + comp.size()
+	var at := PackedByteArray()
+	at.resize(8)
+	at.encode_s64(0, list_at)
+	file.append_array(at)
+	file.append_array(comp)
+	var list := PackedByteArray("List".to_ascii_buffer())
+	var entry := PackedByteArray()
+	entry.resize(4 + 20)
+	entry.encode_s32(0, 1)
+	entry.encode_u32(4, 0x706D6F43) # "Comp", little-endian
+	entry.encode_s64(8, 48)
+	entry.encode_s64(16, comp.size())
+	list.append_array(entry)
+	file.append_array(list)
+	var f := FileAccess.open(dir.path_join("Quarter.vstpreset"), FileAccess.WRITE)
+	f.store_buffer(file)
+	f.close()
+	OS.set_environment("GAPH_VST3_PRESET_PATH", dir)
+	var r := await _rig(path, "", "Inst_V3Presets")
+	var v: Vst3Instrument = r.inst
+	var presets: Array = v.get_presets()
+	var names := presets.map(func(p): return p.name)
+	_check(names.has("Full") and names.has("Half") and names.has("Quarter") and class_id.length() == 32, "VST3: the program list and the .vstpreset file (%s, class %s)" % [names, class_id])
+	var midi: MidiDriver = r.midi
+	midi.set_channel_target(1, v)
+	midi.note_on(1, 60, 127) # held
+	await get_tree().create_timer(0.3).timeout
+	var half := presets.filter(func(p): return p.name == "Half")
+	_check(half.size() == 1 and half[0].collection == "Levels" and v.load_preset(half[0].id), "VST3: load_preset(Half), a program")
+	await get_tree().create_timer(0.2).timeout
+	var a := await _collect(r.cap, 0.1)
+	_check(a.size() > 0 and is_equal_approx(a[a.size() - 1].x, 0.125), "... the playing instrument at half: 0.125 (%.4f)" % (a[a.size() - 1].x if a.size() > 0 else -1.0))
+	var quarter := presets.filter(func(p): return p.name == "Quarter")
+	_check(quarter.size() == 1 and v.load_preset(quarter[0].id), "VST3: load_preset(Quarter), a .vstpreset file")
+	await get_tree().create_timer(0.2).timeout
+	var b := await _collect(r.cap, 0.1)
+	_check(b.size() > 0 and is_equal_approx(b[b.size() - 1].x, 0.0625), "... at a quarter: 0.0625 (%.5f)" % (b[b.size() - 1].x if b.size() > 0 else -1.0))
+	midi.panic()
+	await _unrig(r)
+	OS.set_environment("GAPH_VST3_PRESET_PATH", "")

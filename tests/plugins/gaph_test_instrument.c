@@ -20,6 +20,7 @@
  * its right output the tempo x 0.001 while playing, else 0. So the audio shows what the plugin was
  * told, sample by sample: a loop jump is a step down on the very sample it happens.
  */
+#define _CRT_SECURE_NO_WARNINGS /* fopen and fscanf, for the test presets */
 #include <clap/clap.h>
 
 #include <stdbool.h>
@@ -386,8 +387,41 @@ static bool state_load(const clap_plugin_t *p, const clap_istream_t *stream) {
 
 static const clap_plugin_state_t STATE = { state_save, state_load };
 
+/* --- presets ---------------------------------------------------------------------------------
+ * For the notes instrument only. Two built in ("Half", "Quarter": Master 0.5 and 0.25, location
+ * kind PLUGIN, load keys "half" and "quarter"), and the .gtp files in the folder named by
+ * GAPH_TEST_PRESET_DIR, each holding a Master value as text. */
+static bool preset_from_location(const clap_plugin_t *p, uint32_t kind, const char *location, const char *key) {
+	Instrument *s = self_of(p);
+	if (kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN) {
+		if (key && !strcmp(key, "half")) {
+			s->master = 0.5;
+			return true;
+		}
+		if (key && !strcmp(key, "quarter")) {
+			s->master = 0.25;
+			return true;
+		}
+		return false;
+	}
+	FILE *f = location ? fopen(location, "rb") : NULL;
+	double v = -1.0;
+	if (f) {
+		if (fscanf(f, "%lf", &v) != 1) {
+			v = -1.0;
+		}
+		fclose(f);
+	}
+	if (v < 0.0 || v > 1.0) {
+		return false;
+	}
+	s->master = v;
+	return true;
+}
+
+static const clap_plugin_preset_load_t PRESET_LOAD = { preset_from_location };
+
 static const void *p_get_extension(const clap_plugin_t *p, const char *id) {
-	(void)p;
 	if (!strcmp(id, CLAP_EXT_AUDIO_PORTS)) {
 		return &AUDIO_PORTS;
 	}
@@ -399,6 +433,9 @@ static const void *p_get_extension(const clap_plugin_t *p, const char *id) {
 	}
 	if (!strcmp(id, CLAP_EXT_STATE)) {
 		return &STATE;
+	}
+	if (!strcmp(id, CLAP_EXT_PRESET_LOAD) && !self_of(p)->midi_only && !self_of(p)->transport_only && !self_of(p)->drums) {
+		return &PRESET_LOAD;
 	}
 	return NULL;
 }
@@ -460,7 +497,100 @@ static bool entry_init(const char *path) {
 
 static void entry_deinit(void) {}
 
+/* Preset discovery: one provider. Built in: Half and Quarter for the notes instrument, and
+ * "Other", for the MIDI instrument only (so a host must not list it for the notes one). */
+typedef struct {
+	clap_preset_discovery_provider_t provider;
+	const clap_preset_discovery_indexer_t *indexer;
+} Provider;
+
+static const clap_preset_discovery_provider_descriptor_t PROVIDER_DESC = {
+	CLAP_VERSION_INIT, "org.godot-audio-plugin-host.test-presets", "GAPH Test Presets", "Godot Audio Plugin Host",
+};
+
+static bool provider_init(const clap_preset_discovery_provider_t *p) {
+	const clap_preset_discovery_indexer_t *ix = ((const Provider *)p->provider_data)->indexer;
+	const clap_preset_discovery_filetype_t type = { "GAPH test preset", "A Master value as text", "gtp" };
+	ix->declare_filetype(ix, &type);
+	const clap_preset_discovery_location_t built_in = { CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT, "Built in", CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL };
+	ix->declare_location(ix, &built_in);
+	const char *dir = getenv("GAPH_TEST_PRESET_DIR");
+	if (dir && *dir) {
+		const clap_preset_discovery_location_t user = { CLAP_PRESET_DISCOVERY_IS_USER_CONTENT, "User", CLAP_PRESET_DISCOVERY_LOCATION_FILE, dir };
+		ix->declare_location(ix, &user);
+	}
+	return true;
+}
+
+static void provider_destroy(const clap_preset_discovery_provider_t *p) {
+	free(p->provider_data);
+}
+
+static void for_plugin(const clap_preset_discovery_metadata_receiver_t *r, const char *id) {
+	const clap_universal_plugin_id_t uid = { "clap", id };
+	r->add_plugin_id(r, &uid);
+}
+
+static bool provider_get_metadata(const clap_preset_discovery_provider_t *p, uint32_t kind, const char *location, const clap_preset_discovery_metadata_receiver_t *r) {
+	(void)p;
+	if (kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN) {
+		if (r->begin_preset(r, "Half", "half")) {
+			for_plugin(r, DESC_CLAP.id);
+			r->add_creator(r, "GAPH");
+			r->add_feature(r, "quiet");
+		}
+		if (r->begin_preset(r, "Quarter", "quarter")) {
+			for_plugin(r, DESC_CLAP.id);
+		}
+		if (r->begin_preset(r, "Other", "other")) {
+			for_plugin(r, DESC_MIDI.id);
+		}
+		return true;
+	}
+	(void)location;
+	if (r->begin_preset(r, NULL, NULL)) { /* one preset per file, named after it */
+		for_plugin(r, DESC_CLAP.id);
+	}
+	return true;
+}
+
+static const void *provider_get_extension(const clap_preset_discovery_provider_t *p, const char *id) {
+	(void)p, (void)id;
+	return NULL;
+}
+
+static uint32_t presets_count(const clap_preset_discovery_factory_t *f) {
+	(void)f;
+	return 1;
+}
+
+static const clap_preset_discovery_provider_descriptor_t *presets_descriptor(const clap_preset_discovery_factory_t *f, uint32_t index) {
+	(void)f;
+	return index == 0 ? &PROVIDER_DESC : NULL;
+}
+
+static const clap_preset_discovery_provider_t *presets_create(const clap_preset_discovery_factory_t *f, const clap_preset_discovery_indexer_t *indexer, const char *id) {
+	(void)f;
+	if (strcmp(id, PROVIDER_DESC.id)) {
+		return NULL;
+	}
+	Provider *pv = (Provider *)calloc(1, sizeof(Provider));
+	pv->indexer = indexer;
+	pv->provider.desc = &PROVIDER_DESC;
+	pv->provider.provider_data = pv;
+	pv->provider.init = provider_init;
+	pv->provider.destroy = provider_destroy;
+	pv->provider.get_metadata = provider_get_metadata;
+	pv->provider.get_extension = provider_get_extension;
+	return &pv->provider;
+}
+
+static const clap_preset_discovery_factory_t PRESET_FACTORY = { presets_count, presets_descriptor, presets_create };
+
 static const void *entry_get_factory(const char *id) {
+	if (!strcmp(id, CLAP_PRESET_DISCOVERY_FACTORY_ID)) {
+		return &PRESET_FACTORY;
+	}
 	return !strcmp(id, CLAP_PLUGIN_FACTORY_ID) ? &FACTORY : NULL;
 }
 

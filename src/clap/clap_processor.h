@@ -64,6 +64,8 @@ public:
 
 	bool process(const AudioBlock &p_block) override;
 	std::vector<std::string> output_names() const override;
+	std::vector<PresetInfo> list_presets() override;
+	bool load_preset(const std::string &p_id, std::string &r_error, uint32_t &r_param, double &r_value) override;
 	bool is_sleeping() const override { return sleeping.load(std::memory_order_relaxed); }
 	void detach_from_audio() override;
 	void idle() override;
@@ -118,6 +120,10 @@ private:
 	static const void *host_get_extension(const clap_host_t *p_host, const char *p_id);
 	static void host_request_restart(const clap_host_t *p_host);
 	static void host_request_process(const clap_host_t *p_host);
+	// clap.preset-load, the host's side: the plugin reports how a load went (main thread).
+	static void preset_on_error(const clap_host_t *p_host, uint32_t p_kind, const char *p_location, const char *p_key, int32_t p_os_error, const char *p_message);
+	static void preset_loaded(const clap_host_t *p_host, uint32_t p_kind, const char *p_location, const char *p_key);
+	std::string preset_error; // the last load's, from preset_on_error
 	static void host_request_callback(const clap_host_t *p_host);
 	static bool host_is_main_thread(const clap_host_t *p_host);
 	static bool host_is_audio_thread(const clap_host_t *p_host);

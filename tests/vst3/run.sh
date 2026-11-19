@@ -7,7 +7,7 @@ out="$root/tests/vst3/build"
 sdk="$root/thirdparty/vst3sdk"
 mkdir -p "$out"
 g++ -std=c++17 -O1 -g -Wall -Wextra -Wno-deprecated-declarations -fsanitize=address -DRELEASE=1 -I"$root/src" -I"$sdk" \
-	"$root/tests/vst3/test_vst3.cpp" "$root"/src/vst3/vst3_processor.cpp "$root"/src/vst3/vst3_module.cpp "$root"/src/vst3/vst3_threadchecker.cpp \
+	"$root/tests/vst3/test_vst3.cpp" "$root"/src/vst3/vst3_processor.cpp "$root"/src/vst3/vst3_module.cpp "$root"/src/vst3/vst3_presets.cpp "$root"/src/vst3/vst3_threadchecker.cpp \
 	$(grep -v '^#' "$root/vst3_sdk_sources.txt" | sed "s|^|$sdk/|") \
 	"$sdk/public.sdk/source/vst/moduleinfo/moduleinfocreator.cpp" \
 	-o "$out/test_vst3" -ldl -pthread

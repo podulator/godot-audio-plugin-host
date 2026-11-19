@@ -70,6 +70,9 @@ public:
 	~Vst3Processor() override;
 
 	bool process(const AudioBlock &p_block) override;
+	std::vector<PresetInfo> list_presets() override; // vst3_presets.cpp
+	bool load_preset(const std::string &p_id, std::string &r_error, uint32_t &r_param, double &r_value) override;
+	static const char STATE_MAGIC[8]; // our state's first bytes (save_state)
 	bool wants_transport_splits() const override { return true; } // only at TRANSPORT events: none for an effect without a tempo
 	std::vector<std::string> output_names() const override;
 	void detach_from_audio() override {} // setProcessing(false) is allowed on the main thread.

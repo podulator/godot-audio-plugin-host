@@ -97,6 +97,20 @@ The Add Effect menu lists effects only: instruments play as [audio streams](#ins
 
 Setting `plugin_state` from a script loads a preset: it replaces every value set by hand so far.
 
+## Presets
+
+Effects and instruments list the presets their plugin offers, and load them:
+
+```gdscript
+for p in synth.get_presets():                    # [{id, name, collection, creator, description, tags}, ...]
+    print(p.collection, " / ", p.name)
+synth.load_preset(synth.get_presets()[0].id)     # into every instance at once; saved as its state
+```
+
+- **CLAP:** the plugin's preset-discovery factory: presets built into it, and preset files in the folders it names (only those for this very plugin), loaded through its `preset-load` extension.
+- **VST3:** its program list, and `.vstpreset` files for it in the standard VST3 preset folders (and any in `GAPH_VST3_PRESET_PATH`).
+- A loaded preset is the plugin's state from then on: `plugin_state` saves it with the scene.
+
 ## Sound that follows gameplay
 
 Parameters can glide, be modulated without touching their saved value, and effects can follow a tempo:

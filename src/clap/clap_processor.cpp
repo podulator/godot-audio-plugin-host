@@ -1,4 +1,5 @@
 #include "clap_processor.h"
+#include "clap_presets.h"
 
 #include "core/midi_expression.h"
 #include "core/native_window.h"
@@ -795,6 +796,7 @@ const void *ClapProcessor::host_get_extension(const clap_host_t *, const char *p
 		host_gui_request_hide, host_gui_closed };
 	static const clap_host_timer_support_t timer = { host_timer_register, host_timer_unregister };
 	static const clap_host_posix_fd_support_t posix_fd = { host_fd_register, host_fd_modify, host_fd_unregister };
+	static const clap_host_preset_load_t preset_load = { preset_on_error, preset_loaded };
 
 	if (!p_id) {
 		return nullptr;
@@ -810,6 +812,9 @@ const void *ClapProcessor::host_get_extension(const clap_host_t *, const char *p
 	}
 	if (!std::strcmp(p_id, CLAP_EXT_STATE)) {
 		return &state;
+	}
+	if (!std::strcmp(p_id, CLAP_EXT_PRESET_LOAD) || !std::strcmp(p_id, CLAP_EXT_PRESET_LOAD_COMPAT)) {
+		return &preset_load;
 	}
 	if (!std::strcmp(p_id, CLAP_EXT_LATENCY)) {
 		return &latency;
@@ -832,6 +837,43 @@ const void *ClapProcessor::host_get_extension(const clap_host_t *, const char *p
 void ClapProcessor::host_request_restart(const clap_host_t *p_host) {
 	from_mut(p_host)->restart_requested.store(true, std::memory_order_release);
 }
+
+// --- Presets ---------------------------------------------------------------------------------------
+
+std::vector<PresetInfo> ClapProcessor::list_presets() {
+	return library ? clap_discover_presets(*library, plugin->desc->id) : std::vector<PresetInfo>();
+}
+
+// MAIN THREAD (clap.preset-load is main-thread). The plugin loads it into itself; the caller
+// (HostedEffect::load_preset) then shares the resulting state with the other instances.
+bool ClapProcessor::load_preset(const std::string &p_id, std::string &r_error, uint32_t &, double &) {
+	auto *ext = static_cast<const clap_plugin_preset_load_t *>(plugin->get_extension(plugin, CLAP_EXT_PRESET_LOAD));
+	if (!ext) {
+		ext = static_cast<const clap_plugin_preset_load_t *>(plugin->get_extension(plugin, CLAP_EXT_PRESET_LOAD_COMPAT));
+	}
+	uint32_t kind = 0;
+	std::string location, key;
+	if (!ext) {
+		r_error = "this plugin cannot load presets (no clap.preset-load)";
+		return false;
+	}
+	if (!clap_parse_preset_id(p_id, kind, location, key)) {
+		r_error = "not a CLAP preset id";
+		return false;
+	}
+	preset_error.clear();
+	const bool ok = ext->from_location(plugin, kind, kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN ? nullptr : location.c_str(), key.empty() ? nullptr : key.c_str());
+	if (!ok) {
+		r_error = preset_error.empty() ? "the plugin could not load that preset" : preset_error;
+	}
+	return ok;
+}
+
+void ClapProcessor::preset_on_error(const clap_host_t *p_host, uint32_t, const char *, const char *, int32_t, const char *p_message) {
+	static_cast<ClapProcessor *>(p_host->host_data)->preset_error = p_message ? p_message : "the plugin could not load that preset";
+}
+
+void ClapProcessor::preset_loaded(const clap_host_t *, uint32_t, const char *, const char *) {}
 
 // ANY THREAD. The plugin wants process() again, while it sleeps (see SLEEP in the header).
 void ClapProcessor::host_request_process(const clap_host_t *p_host) {

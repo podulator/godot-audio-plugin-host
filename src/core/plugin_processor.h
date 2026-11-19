@@ -49,6 +49,18 @@ struct ParamInfo {
 	uint32_t step_count = 0;
 };
 
+// One preset a plugin offers (PluginProcessor::list_presets): `id` is what load_preset() takes,
+// opaque outside its format (CLAP: where the preset is and its load key; VST3: a program or a
+// .vstpreset file).
+struct PresetInfo {
+	std::string id;
+	std::string name;
+	std::string collection; // a bank, a sound pack, a folder: for grouping, may be empty
+	std::string creator;
+	std::string description;
+	std::vector<std::string> tags; // the plugin's own words: "bass", "pad", ...
+};
+
 // "Set parameter `param_id` to `value`, starting `frame_offset` frames into this block." The
 // offset is what makes automation sample-accurate. Events in one block are sorted by offset.
 struct ParamEvent {
@@ -167,6 +179,16 @@ public:
 	// The bytes are opaque: only the same plugin can read them back. False if it has no state.
 	virtual bool save_state(std::vector<uint8_t> & /*r_data*/) { return false; }
 	virtual bool load_state(const std::vector<uint8_t> & /*p_data*/) { return false; }
+
+	// MAIN THREAD. The presets the plugin offers (it may index files: call it from a menu, not
+	// every frame), and loading one into this instance. r_error says why not. A preset that is a
+	// program (VST3 program lists) is loaded by setting a parameter instead: then r_param is that
+	// parameter and r_value its value, and the caller sets it on every instance.
+	virtual std::vector<PresetInfo> list_presets() { return {}; }
+	virtual bool load_preset(const std::string & /*p_id*/, std::string &r_error, uint32_t & /*r_param*/, double & /*r_value*/) {
+		r_error = "this plugin offers no presets";
+		return false;
+	}
 
 	// MAIN THREAD. The plugin's current value for a parameter, after load_state() changed it, say.
 	virtual bool get_param_value(uint32_t /*p_id*/, double & /*r_value*/) const { return false; }

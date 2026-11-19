@@ -95,6 +95,13 @@
 				The plugin's [code]id[/code], [code]name[/code], [code]vendor[/code] and [code]version[/code].
 			</description>
 		</method>
+		<method name="get_presets">
+			<return type="Dictionary[]" />
+			<description>
+				The presets the plugin offers, as a [Dictionary] each with [code]id[/code] (what [method load_preset] takes), [code]name[/code], [code]collection[/code] (a sound pack, may be empty), [code]creator[/code], [code]description[/code] and [code]tags[/code] (the plugin's own words: bass, pad ...). They come from the plugin's preset-discovery factory: presets built into it, and preset files in the folders it names (only those for this very plugin). Empty if it offers none.
+				[b]Note:[/b] This may read every preset file the plugin names. Call it from a menu, not every frame.
+			</description>
+		</method>
 		<method name="is_editor_open" qualifiers="const">
 			<return type="bool" />
 			<description>
@@ -111,6 +118,13 @@
 			<return type="bool" />
 			<description>
 				[code]true[/code] while the plugin sleeps: it said it has nothing to do (no notes sounding, say), so it is not called, and costs no CPU, until something arrives for it (a note, a parameter change, the transport) or it asks to run.
+			</description>
+		</method>
+		<method name="load_preset">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<description>
+				Loads a preset from [method get_presets] by its [code]id[/code], into every instance of the plugin, so they all sound it at once. It then is the plugin's state: [member plugin_state] saves it with the scene, and values set by hand give way to it, as when a state is loaded. Returns [code]false[/code], with the reason printed, if the plugin refuses it.
 			</description>
 		</method>
 		<method name="midi_event">

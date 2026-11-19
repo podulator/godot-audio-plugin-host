@@ -95,6 +95,12 @@
 				Returns a description of the loaded plugin: [code]id[/code], [code]name[/code], [code]vendor[/code], [code]version[/code], [code]description[/code], [code]features[/code] (the plugin's VST3 subcategories, such as [code]["Fx", "Dynamics"][/code]), and [code]inputs[/code] and [code]outputs[/code], each an [Array] of buses with [code]name[/code], [code]channels[/code] and [code]main[/code]. A second input bus is a sidechain (see [member sidechain]). Returns an empty [Dictionary] if no plugin is loaded.
 			</description>
 		</method>
+		<method name="get_presets">
+			<return type="Dictionary[]" />
+			<description>
+				The presets the plugin offers, as a [Dictionary] each with [code]id[/code] (what [method load_preset] takes), [code]name[/code] and [code]collection[/code]: its program list (the programs of its program-change parameter, the list's name as the collection), and [code].vstpreset[/code] files for this plugin in the standard VST3 preset folders ([code]&lt;vendor&gt;/&lt;plugin&gt;/[/code] under [code]~/.vst3/presets[/code] and [code]/usr/share/vst3/presets[/code] on Linux, [code]Documents/VST3 Presets[/code] on Windows, [code]~/Library/Audio/Presets[/code] on macOS), and in any folder listed in the [code]GAPH_VST3_PRESET_PATH[/code] environment variable. Empty if there are none.
+			</description>
+		</method>
 		<method name="is_editor_open" qualifiers="const">
 			<return type="bool" />
 			<description>
@@ -105,6 +111,13 @@
 			<return type="bool" />
 			<description>
 				Returns [code]true[/code] if the plugin at [member plugin_path] was found and loaded. If not, [method get_load_error] says why.
+			</description>
+		</method>
+		<method name="load_preset">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<description>
+				Loads a preset from [method get_presets] by its [code]id[/code], into every instance of the plugin, so they all sound it at once. It then is the plugin's state: [member plugin_state] saves it with the scene, and values set by hand give way to it, as when a state is loaded. Returns [code]false[/code], with the reason printed, if the plugin refuses it.
 			</description>
 		</method>
 		<method name="midi_stop">

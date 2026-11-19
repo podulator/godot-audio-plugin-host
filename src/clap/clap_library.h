@@ -37,6 +37,7 @@ public:
 
 	const std::string &get_path() const { return path; }
 	const clap_plugin_factory_t *get_factory() const { return factory; }
+	const clap_plugin_entry_t *get_entry() const { return entry; }
 	// The descriptors are owned by the plugin binary and stay valid until deinit().
 	const std::vector<const clap_plugin_descriptor_t *> &get_descriptors() const { return descriptors; }
 

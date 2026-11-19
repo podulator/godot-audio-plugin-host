@@ -106,6 +106,11 @@ public:
 	// MAIN THREAD. Glides to p_value over p_seconds, from p_delay_us on, sample-exact (points every
 	// EffectRuntime::RAMP_STEP frames); the stored value is the target at once.
 	void set_param_ramp(uint32_t p_id, double p_value, double p_seconds, int64_t p_delay_us);
+	// MAIN THREAD. Presets: listed by the reference instance; loading one loads it there, then gives
+	// the resulting state to every instance (as load_state does), so all of them sound the same.
+	std::vector<PresetInfo> list_presets();
+	bool load_preset(const std::string &p_id, std::string &r_error);
+
 	// MAIN THREAD. A modulation offset (plugin units) on top of the set value, which it leaves as it
 	// is: gameplay moving a filter without touching the saved setting. 0 ends it. CLAP parameters
 	// marked modulatable take it natively (CLAP_EVENT_PARAM_MOD); for others (all of VST3) the host

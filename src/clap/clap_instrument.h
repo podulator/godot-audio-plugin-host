@@ -87,6 +87,9 @@ public:
 	void set_parameter_ramp(int64_t p_id, double p_value, double p_seconds, double p_delay);
 	void set_parameter_modulation(int64_t p_id, double p_amount, double p_delay);
 	double get_parameter_modulation(int64_t p_id);
+	// Presets (PluginProcessor::list_presets): [{id, name, collection, creator, description, tags}].
+	TypedArray<Dictionary> get_presets();
+	bool load_preset(const String &p_id);
 	double get_parameter(int64_t p_id);
 	Dictionary get_plugin_info();
 

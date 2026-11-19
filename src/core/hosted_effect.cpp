@@ -30,6 +30,34 @@ bool HostedEffect::save_state(std::vector<uint8_t> &r_data) {
 	return source && source->save_state(r_data);
 }
 
+std::vector<PresetInfo> HostedEffect::list_presets() {
+	return reference ? reference->list_presets() : std::vector<PresetInfo>();
+}
+
+bool HostedEffect::load_preset(const std::string &p_id, std::string &r_error) {
+	if (!reference) {
+		r_error = "no plugin loaded";
+		return false;
+	}
+	uint32_t param = UINT32_MAX;
+	double value = 0.0;
+	if (!reference->load_preset(p_id, r_error, param, value)) {
+		return false;
+	}
+	if (param != UINT32_MAX) { // a program: its parameter, on every instance
+		set_param_at(param, value, 0);
+		return true;
+	}
+	std::vector<uint8_t> after;
+	if (!reference->save_state(after)) {
+		r_error = "the preset loaded, but the plugin keeps no state to share it with its other instances";
+		return true;
+	}
+	values.clear(); // a preset sets every parameter: values set by hand give way, as for a state
+	load_state(after);
+	return true;
+}
+
 void HostedEffect::load_state(const std::vector<uint8_t> &p_data) {
 	state = p_data;
 	spares.clear(); // They carry the previous state. Rebuilt by idle().

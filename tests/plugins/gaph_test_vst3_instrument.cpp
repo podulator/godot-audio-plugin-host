@@ -31,6 +31,8 @@ const FUID INSTRUMENT_ID(0x67617068u, 0x74657374u, 0x76737433u, 0x696e7301u);
 const FUID TRANSPORT_ID(0x67617068u, 0x74657374u, 0x76737433u, 0x74727001u);
 const FUID DRUMS_ID(0x67617068u, 0x74657374u, 0x76737433u, 0x64726d01u);
 constexpr ParamID VOLUME_ID = 1;
+constexpr ParamID PROGRAM_ID = 2;
+constexpr ProgramListID PROGRAM_LIST_ID = 1;
 constexpr int MAX_NOTES = 64;
 
 struct Note {
@@ -58,6 +60,18 @@ public:
 		}
 		addEventInput(STR16("Notes"), 16);
 		parameters.addParameter(STR16("Volume"), STR16(""), 0, 1.0, ParameterInfo::kCanAutomate, VOLUME_ID);
+		if (!transport_only && !drums) {
+			// A program list for hosts' preset tests: "Levels", Full (Volume 1) and Half (0.5), on the
+			// root unit, through its program-change parameter (PROGRAM_ID).
+			auto *list = new ProgramList(STR16("Levels"), PROGRAM_LIST_ID, kRootUnitId);
+			list->addProgram(STR16("Full"));
+			list->addProgram(STR16("Half"));
+			addUnit(new Unit(STR16("Root"), kRootUnitId, kNoParentUnitId, PROGRAM_LIST_ID));
+			addProgramList(list);
+			Parameter *program = list->getParameter();
+			program->getInfo().id = PROGRAM_ID;
+			parameters.addParameter(program);
+		}
 		return kResultOk;
 	}
 
@@ -87,6 +101,10 @@ public:
 	}
 
 	tresult PLUGIN_API setParamNormalized(ParamID id, ParamValue value) override {
+		if (id == PROGRAM_ID) {
+			volume = value >= 0.5 ? 0.5 : 1.0; // Half, Full
+			SingleComponentEffect::setParamNormalized(VOLUME_ID, volume);
+		}
 		if (id == VOLUME_ID) {
 			volume = value;
 		}
@@ -126,6 +144,11 @@ public:
 				IParamValueQueue *q = changes->getParameterData(i);
 				if (q && q->getParameterId() == VOLUME_ID) {
 					volume_queue = q;
+				}
+				int32 at;
+				ParamValue program;
+				if (q && q->getParameterId() == PROGRAM_ID && q->getPointCount() > 0 && q->getPoint(q->getPointCount() - 1, at, program) == kResultOk) {
+					volume = program >= 0.5 ? 0.5 : 1.0; // a program change: from the block's start
 				}
 			}
 		}

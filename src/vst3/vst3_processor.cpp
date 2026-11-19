@@ -680,7 +680,7 @@ bool Vst3Processor::value_to_text(uint32_t p_id, double p_value, std::string &r_
 //
 // Sizes are little-endian, written byte by byte, so the file reads the same on any machine.
 
-static const char STATE_MAGIC[8] = { 'G', 'A', 'P', 'H', 'V', 'S', 'T', '3' };
+const char Vst3Processor::STATE_MAGIC[8] = { 'G', 'A', 'P', 'H', 'V', 'S', 'T', '3' };
 
 static void put_u64(std::vector<uint8_t> &r_out, uint64_t p_v) {
 	for (int i = 0; i < 8; i++) {

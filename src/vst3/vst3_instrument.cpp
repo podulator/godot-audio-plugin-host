@@ -241,6 +241,38 @@ double Vst3Instrument::get_parameter_modulation(int64_t p_id) {
 	return hosted.get_param_mod(uint32_t(p_id));
 }
 
+TypedArray<Dictionary> Vst3Instrument::get_presets() {
+	ensure_loaded();
+	TypedArray<Dictionary> out;
+	for (const gaph::PresetInfo &p : hosted.list_presets()) {
+		Dictionary d;
+		d["id"] = String::utf8(p.id.c_str());
+		d["name"] = String::utf8(p.name.c_str());
+		d["collection"] = String::utf8(p.collection.c_str());
+		d["creator"] = String::utf8(p.creator.c_str());
+		d["description"] = String::utf8(p.description.c_str());
+		PackedStringArray tags;
+		for (const std::string &t : p.tags) {
+			tags.push_back(String::utf8(t.c_str()));
+		}
+		d["tags"] = tags;
+		out.push_back(d);
+	}
+	return out;
+}
+
+// The preset's sound becomes this resource's state: plugin_state saves it, param_values set by
+// hand give way to it (as when a state is loaded).
+bool Vst3Instrument::load_preset(const String &p_id) {
+	ensure_loaded();
+	std::string err;
+	const bool ok = hosted.load_preset(p_id.utf8().get_data(), err);
+	ERR_FAIL_COND_V_MSG(!ok, false, vformat("Vst3Instrument: %s.", String::utf8(err.c_str())));
+	notify_property_list_changed();
+	emit_changed();
+	return true;
+}
+
 double Vst3Instrument::get_parameter(int64_t p_id) {
 	ensure_loaded();
 	return hosted.get_param(uint32_t(p_id));
@@ -410,6 +442,8 @@ void Vst3Instrument::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_parameter_ramp", "id", "value", "seconds", "delay"), &Vst3Instrument::set_parameter_ramp, DEFVAL(0.0));
 	ClassDB::bind_method(D_METHOD("set_parameter_modulation", "id", "amount", "delay"), &Vst3Instrument::set_parameter_modulation, DEFVAL(0.0));
 	ClassDB::bind_method(D_METHOD("get_parameter_modulation", "id"), &Vst3Instrument::get_parameter_modulation);
+	ClassDB::bind_method(D_METHOD("get_presets"), &Vst3Instrument::get_presets);
+	ClassDB::bind_method(D_METHOD("load_preset", "id"), &Vst3Instrument::load_preset);
 	ClassDB::bind_method(D_METHOD("get_parameter", "id"), &Vst3Instrument::get_parameter);
 	ClassDB::bind_method(D_METHOD("get_plugin_info"), &Vst3Instrument::get_plugin_info);
 	ClassDB::bind_method(D_METHOD("get_frames_processed"), &Vst3Instrument::get_frames_processed);
