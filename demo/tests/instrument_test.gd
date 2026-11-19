@@ -36,6 +36,7 @@ func _ready() -> void:
 		await _test_sleep(path)
 		await _test_transport(path)
 		await _test_clip_audio(path)
+		await _test_note_expressions(path)
 	var vst3_notes := TestUtilScript.own_plugin("gaph_test_vst3_instrument.vst3")
 	var vst3_transport := TestUtilScript.own_plugin("gaph_test_vst3_transport.vst3")
 	if not DirAccess.dir_exists_absolute(vst3_notes) or not DirAccess.dir_exists_absolute(vst3_transport):
@@ -509,3 +510,45 @@ func _test_clip_audio(path: String) -> void:
 	var beat := int(rate / 2.0)
 	_check(starts.size() == 4 and gaps == [beat, beat, 2 * beat], "a MIDI file with a tempo change, to the sample: note starts %s apart, want [%d, %d, %d]" % [gaps, beat, beat, 2 * beat])
 	await _unrig(r)
+
+
+# Note expressions, measured in the sound. A plugin taking CLAP note events gets them natively:
+# a chord of two notes (0.25 each), then the first note's volume doubled half a beat in, which
+# lifts only that note, on its exact sample (0.5 -> 0.75, rate / 4 samples after the chord).
+# A plugin taking only MIDI gets the "exact or nothing" stand-in: a lone note's volume 0.5 becomes
+# CC 7 (its level halves); on a chord the expression is dropped (the level stays).
+func _test_note_expressions(path: String) -> void:
+	var r := await _rig(path, CLAP_ID, "Inst_Expr")
+	var midi: MidiDriver = r.midi
+	midi.set_channel_target(1, r.inst)
+	midi.play()
+	await get_tree().create_timer(0.1).timeout
+	var at := midi.after(0.5)
+	var a := midi.note_on(1, 60, 127, 1.0, at)
+	midi.note_on(1, 64, 127, 1.0, at)
+	a.volume(2.0, at + 0.5)
+	var steps := _steps(await _collect(r.cap, 1.2))
+	var quarter := int(rate / 4.0) # half a beat at 120 bpm
+	_check(steps.size() >= 2 and is_equal_approx(steps[0][1], 0.5) and is_equal_approx(steps[1][1], 0.75) and steps[1][0] - steps[0][0] == quarter,
+			"CLAP note expression: one note of a chord twice as loud, on its sample (%s, want +%d)" % [str(steps.slice(0, 3)), quarter])
+	await _unrig(r)
+
+	var m := await _rig(path, MIDI_ID, "Inst_Expr_Midi")
+	midi = m.midi
+	midi.set_channel_target(1, m.inst)
+	midi.play()
+	await get_tree().create_timer(0.1).timeout
+	at = midi.after(0.5)
+	var lone := midi.note_on(1, 60, 127, 0.5, at)
+	lone.volume(0.5, at + 0.25)
+	var chord := midi.note_on(1, 62, 127, 0.5, at + 1.0)
+	midi.note_on(1, 65, 127, 0.5, at + 1.0)
+	chord.volume(0.5, at + 1.25) # dropped: not alone on its channel
+	var s2 := _steps(await _collect(m.cap, 1.8))
+	var half := 64.0 / 127.0 * 0.25 # CC 7 = 64: 0.5 of the full range, scaled to 7 bits
+	_check(s2.size() >= 3 and is_equal_approx(s2[0][1], 0.25) and absf(s2[1][1] - half) < 1e-4,
+			"MIDI-only plugin: a lone note's volume as CC 7 (%s)" % str(s2.slice(0, 3)))
+	var chord_level := 2 * 0.25 * 64.0 / 127.0 # CC 7 stays at 64 from the lone note
+	_check(s2.size() >= 4 and s2.slice(2).all(func(st): return st[1] == 0.0 or absf(st[1] - chord_level) < 1e-4),
+			"MIDI-only plugin: on a chord the expression is dropped, the level stays (%s)" % str(s2.slice(2)))
+	await _unrig(m)

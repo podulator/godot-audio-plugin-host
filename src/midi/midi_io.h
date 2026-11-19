@@ -17,6 +17,7 @@
 // what was played exact: each message is due its arrival time plus that much, instead of "the
 // next frame", so a frame's jitter disappears at the cost of that fixed delay.
 
+#include "core/midi_expression.h"
 #include "core/midi_target.h"
 #include "core/midi_values.h"
 #include "midi_ports.h"
@@ -52,6 +53,14 @@ public:
 	double get_delay_ms() const { return delay_ms; }
 	void send_bytes(const PackedByteArray &p_bytes); // now, as they are
 
+	// Per-note expressions (core/midi_expression.h): with mpe, each note gets a member channel of
+	// its own (2-16, MPE's lower zone), so every expression is exact; without, pressure goes as
+	// polyphonic aftertouch and the rest only while the note is alone on its channel.
+	void set_mpe(bool p_on);
+	bool get_mpe() const { return mpe; }
+	void set_pitch_bend_range(double p_semitones);
+	double get_pitch_bend_range() const { return bend_range; }
+
 	// The MidiDriver target methods.
 	void midi_event(int64_t p_time_us, int64_t p_source, int p_kind, int p_channel, int p_index, int64_t p_value, int64_t p_note_id);
 	void midi_stop(int64_t p_time_us, int64_t p_source, int p_mode);
@@ -75,6 +84,17 @@ private:
 	String port_id;
 	double delay_ms = -1.0;
 	gaph::midi::NoteBook book; // MAIN thread: what each source has sounding, for midi_stop
+	void expression(int64_t p_time_us, uint64_t p_source, int p_channel, int p_index, uint32_t p_value, int64_t p_note_id);
+	int member_channel(int64_t p_note_id) const; // MPE: a note's channel, or 0
+	bool mpe = false;
+	double bend_range = 2.0; // semitones, for tuning as pitch bend (MPE: 48, its default)
+	// MAIN thread: per channel, the sounding notes (by note id) for "alone on its channel"; under
+	// MPE, which note holds each member channel (0 for free), and the round-robin start.
+	std::map<int64_t, int> note_channel;
+	int16_t on_channel[16] = {};
+	int64_t member_note[16] = {};
+	int next_member = 1;
+	bool warned_expressions = false;
 	std::mutex mutex;
 	std::condition_variable wake;
 	std::vector<Pending> pending; // sorted by due time

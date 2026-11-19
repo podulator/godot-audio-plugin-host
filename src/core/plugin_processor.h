@@ -192,6 +192,10 @@ public:
 	virtual std::vector<ParamInfo> read_params() const { return {}; }
 	virtual bool take_params_changed() { return false; }
 
+	// ANY THREAD. How many note expressions were dropped since the last call (a plugin that cannot
+	// take them per note, on a chord: core/midi_expression.h), for one notice on the main thread.
+	virtual uint32_t take_expressions_dropped() { return 0; }
+
 	// AUDIO THREAD (a constant). True for a format that hears the transport only at the start of
 	// a process() call (VST3's ProcessContext): EffectRuntime then starts a new call wherever a
 	// TRANSPORT event falls inside a block, so the plugin gets the change on its sample.

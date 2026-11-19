@@ -339,6 +339,9 @@
 		<constant name="EVENT_PROGRAM" value="6" enum="EventKind">
 			[code]value[/code] is the program, 0-127.
 		</constant>
+		<constant name="EVENT_NOTE_EXPRESSION" value="9" enum="EventKind">
+			A note expression ([method MidiNote.express]): [code]index[/code] is the key plus 256 times the [enum MidiNote.NoteExpression], [code]value[/code] the value packed into 32 bits (tuning: semitones times 65536, as a signed number; volume: 0 to 4 over the full range; the rest 0 to 1), [code]note_id[/code] the note.
+		</constant>
 		<constant name="STOP_WITHDRAW" value="0" enum="StopMode">
 			Drop the events from this source not heard yet; sounding notes go on (a tempo change).
 		</constant>

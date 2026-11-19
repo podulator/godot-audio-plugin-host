@@ -143,6 +143,11 @@ void HostedEffect::detach(EffectRuntime &p_runtime) {
 	}
 }
 
+uint32_t HostedEffect::take_expressions_dropped() {
+	PluginProcessor *p = first_live_processor();
+	return p ? p->take_expressions_dropped() : 0;
+}
+
 bool HostedEffect::is_sleeping() {
 	PluginProcessor *p = first_live_processor();
 	return p && p->is_sleeping();

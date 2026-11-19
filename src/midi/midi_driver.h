@@ -20,6 +20,7 @@
 // there. process_mode is ALWAYS, so a paused SceneTree (a game's pause menu) does not stop the
 // music by itself: pause() does.
 
+#include "core/midi_expression.h"
 #include "core/midi_sequencer.h"
 #include "midi_clip_resource.h"
 
@@ -36,7 +37,26 @@ class MidiNote : public RefCounted {
 	GDCLASS(MidiNote, RefCounted);
 
 public:
+	// Per-note expressions (core/midi_expression.h): CLAP's seven.
+	enum NoteExpression {
+		EXPRESSION_VOLUME = int(gaph::midi::Expression::VOLUME),
+		EXPRESSION_PAN = int(gaph::midi::Expression::PAN),
+		EXPRESSION_TUNING = int(gaph::midi::Expression::TUNING),
+		EXPRESSION_VIBRATO = int(gaph::midi::Expression::VIBRATO),
+		EXPRESSION_EXPRESSION = int(gaph::midi::Expression::EXPRESSION),
+		EXPRESSION_BRIGHTNESS = int(gaph::midi::Expression::BRIGHTNESS),
+		EXPRESSION_PRESSURE = int(gaph::midi::Expression::PRESSURE),
+	};
+
 	void off(double p_at);
+	void express(int p_expression, double p_value, double p_at);
+	void tune(double p_semitones, double p_at) { express(EXPRESSION_TUNING, p_semitones, p_at); }
+	void volume(double p_gain, double p_at) { express(EXPRESSION_VOLUME, p_gain, p_at); }
+	void pan(double p_pan, double p_at) { express(EXPRESSION_PAN, p_pan, p_at); }
+	void vibrato(double p_amount, double p_at) { express(EXPRESSION_VIBRATO, p_amount, p_at); }
+	void expression(double p_amount, double p_at) { express(EXPRESSION_EXPRESSION, p_amount, p_at); }
+	void brightness(double p_amount, double p_at) { express(EXPRESSION_BRIGHTNESS, p_amount, p_at); }
+	void pressure(double p_amount, double p_at) { express(EXPRESSION_PRESSURE, p_amount, p_at); }
 	bool is_active() const; // not ended yet: scheduled, or sounding
 	bool is_sounding() const; // its note-on has been heard, and its note-off not yet
 	int64_t get_id() const { return id; }
@@ -97,6 +117,7 @@ public:
 		EVENT_POLY_PRESSURE = int(gaph::midi::Kind::POLY_PRESSURE),
 		EVENT_CHANNEL_PRESSURE = int(gaph::midi::Kind::CHANNEL_PRESSURE),
 		EVENT_PROGRAM = int(gaph::midi::Kind::PROGRAM),
+		EVENT_NOTE_EXPRESSION = int(gaph::midi::Kind::NOTE_EXPRESSION),
 	};
 	enum StopMode {
 		STOP_WITHDRAW = int(gaph::midi::StopMode::WITHDRAW),
@@ -163,6 +184,7 @@ public:
 
 	// For MidiNote.
 	void end_note(int64_t p_id, double p_at);
+	void note_expression(int64_t p_id, int p_channel, int p_key, int p_expression, double p_value, double p_at);
 	gaph::midi::NoteState note_state(int64_t p_id) const { return seq.note_state(p_id); }
 
 protected:
@@ -189,4 +211,5 @@ private:
 } // namespace godot
 
 VARIANT_ENUM_CAST(MidiDriver::EventKind);
+VARIANT_ENUM_CAST(MidiNote::NoteExpression);
 VARIANT_ENUM_CAST(MidiDriver::StopMode);

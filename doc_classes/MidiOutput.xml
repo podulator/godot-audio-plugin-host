@@ -81,5 +81,11 @@
 		<member name="delay_ms" type="float" setter="set_delay_ms" getter="get_delay_ms" default="-1.0">
 			How much later than its due time a message goes out. -1 (the default): Godot's audio output latency ([method AudioServer.get_output_latency]), so the output and the game's audio are heard together. 0 for none; more to match gear with its own delay.
 		</member>
+		<member name="mpe" type="bool" setter="set_mpe" getter="get_mpe" default="false">
+			MPE (MIDI Polyphonic Expression), for gear that speaks it (an Osmose, a Seaboard): each note gets a member channel of its own (2-16), so every per-note expression is exact (tuning as that channel's pitch bend, pressure as its channel pressure, brightness CC 74). Turning it on sends the MPE configuration message and sets the members' pitch bend range to [member pitch_bend_range], 48 by MPE's default.
+		</member>
+		<member name="pitch_bend_range" type="float" setter="set_pitch_bend_range" getter="get_pitch_bend_range" default="2.0">
+			The semitones a full pitch bend means, for [method MidiNote.tune]: 2 (MIDI's customary range) without MPE, 48 with it. Match it to the synth's own setting.
+		</member>
 	</members>
 </class>

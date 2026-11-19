@@ -167,37 +167,19 @@ An instrument holds at most the lookahead's worth of events, in the runtime's fi
 3. **VST3 instruments: built.** `Vst3Instrument`, VST3 note events and `IMidiMapping`, the transport per block; and saving for both instrument types. Tested as for CLAP, plus a controller through `IMidiMapping`, and a saved instrument loaded fresh sounding as saved.
 4. **External MIDI: built.** `MidiOutput` (a driver target) and `MidiInput` (a node), over one small backend interface (`midi/midi_ports.h`): ALSA sequencer on Linux, loaded with `dlopen` and declared by hand (layout checked against ALSA's headers in `tests/midi/`), CoreMIDI on macOS, WinMM on Windows, none on Android yet. Output: a sender thread per port sends each message at its due time plus the audio's output latency (`delay_ms`), and `midi_stop` withdraws and ends notes through a `NoteBook`, as instruments do. Input: messages queued from the backend's thread with their arrival time, handed out each frame to a signal and to a driver (`live_note_on`/`live_note_off`, so stop and panic end live notes), with an optional fixed `latency_ms` for exact spacing. Tested through the kernel's Midi Through: a driver into `MidiOutput`, back through `MidiInput` into a second driver, notes a beat apart to within a millisecond, and a stop reaching the far side.
 
-## Note expressions (later)
+## Note expressions: built
 
-MIDI 1.0's pitch bend and channel pressure apply to a whole channel: bend it, and every note on it bends. Two ways around that exist, and the driver would use the best one each plugin supports:
+A `MidiNote` takes CLAP's seven expressions, each for that note alone: `tune(semitones)`, `volume(gain 0..4)`, `pan`, `vibrato`, `expression`, `brightness` and `pressure` (0..1), each with an `at`, plus `express(kind, value, at)`. Values are plain floats whatever the driver's MIDI version (Mat, 19.11.2026: start from MIDI 2.0's per-note model and simplify for MIDI 1.0 at the edge), packed into the event's 32 bits inside (`core/midi_expression.h`): `Kind::NOTE_EXPRESSION`, index key + 256 x expression, routed by the note's id to where its note went; an ended note's expression goes nowhere.
 
-1. **CLAP note expressions:** a value sent straight to one `note_id`. CLAP defines seven: volume (0..4, linear), pan (0..1), tuning (semitones, fractional), vibrato, expression, brightness and pressure (0..1).
-2. **MPE** (MIDI Polyphonic Expression, 2018): each sounding note gets a channel of its own, so the channel messages become per note: pitch bend sideways, channel pressure for pressing, CC 74 ("brightness", in MPE "timbre") for sliding along the key. Made for controllers such as the ROLI Seaboard, LinnStrument and Osmose.
-3. **Plain MIDI 1.0** otherwise: the whole channel moves, a limitation the docs state.
+At the edge, the best each target understands:
 
-MIDI 2.0 has per-note controllers and per-note pitch bend of its own, so a MIDI 2.0 driver and plugin need neither workaround.
+1. **Natively:** CLAP plugins taking CLAP note events get `CLAP_EVENT_NOTE_EXPRESSION` (our order is CLAP's); VST3 plugins get Note Expression values (volume gain / 4, tuning semitones / 240 + 0.5), and pressure as VST3's polyphonic pressure event.
+2. **MPE:** a `MidiOutput` with `mpe` on sends the MPE configuration message (lower zone, 15 member channels) and pitch bend range 48 to the members, gives each note a member channel (a free one, round robin), and sends its expressions on it: tuning as pitch bend, pressure as channel pressure, brightness CC 74, volume CC 7, pan CC 10, vibrato CC 1, expression CC 11.
+3. **Plain MIDI** ("exact or nothing", Mat, 19.11.2026): pressure as polyphonic aftertouch, which MIDI 1.0 has per note; the others as their channel message only while the note is the only one sounding on its channel (counted on the audio thread for CLAP, on the main thread for `MidiOutput`), where it is exact; otherwise dropped, with one warning per instrument or output. Tuning uses a pitch bend range of 2 semitones (`MidiOutput.pitch_bend_range` sets its own).
 
-**Ranges:** the same rule as everywhere: MIDI ranges set by the driver's version, MIDI 2.0 resolution inside. Most expressions are MIDI controllers under another name:
+Not done: MIDI 2.0's own per-note messages for a CLAP plugin speaking only MIDI 2.0 (it gets the plain-MIDI path); MPE for CLAP plugins taking MPE but not CLAP note events (rare: those take CLAP's).
 
-| on a `MidiNote` | MIDI 1.0 (with MPE, per note) | MIDI 2.0 (per note natively) |
-| --- | --- | --- |
-| `pressure()` | polyphonic aftertouch, 0-127 | per-note pressure, 32 bit |
-| `brightness()` | CC 74, 0-127 | per-note controller 74, 32 bit |
-| `volume()` | CC 7 | per-note controller 7 |
-| `pan()` | CC 10 | per-note controller 10 |
-| `expression()` | CC 11 | per-note controller 11 |
-| `vibrato()` | CC 77 (vibrato depth, General MIDI 2) | per-note controller 77 |
-
-**The exception: `tune()` is in semitones** (fractional) for both versions. A pitch bend value means nothing without the instrument's bend range (±2 semitones by default, ±48 under MPE), so the driver converts semitones using the range it knows or sets (RPN 0). MIDI 2.0 itself gives per-note pitch in semitones with fractions ("Pitch 7.25"), and CLAP's tuning expression is in semitones too. The raw value stays available as `midi.pitch_bend(channel, value)`, in the driver's range.
-
-```gdscript
-var n := midi.note_on(1, 48, 100)
-n.tune(2.0, midi.after(0.5))   # up 2 semitones, reached half a beat from now
-n.brightness(100)              # 0-127 on a MIDI 1.0 driver, 32 bit on a MIDI 2.0 one
-n.pressure(80)
-```
-
-Phase 1 only has to get the handle right (`note_on` returns a `MidiNote` with an id), so this attaches later without changing the API.
+Tested in the sound: one note of a chord through the test instrument twice as loud on its exact sample (CLAP); through the MIDI-only test instrument, a lone note's volume as CC 7 and a chord's dropped; on the wire through Midi Through, MPE member channels, tuning +1 as pitch bend 8362 over +-48 and pressure as channel pressure, and without MPE polyphonic aftertouch and a chord's tuning dropped.
 
 ## Open questions
 

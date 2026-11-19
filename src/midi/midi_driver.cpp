@@ -32,6 +32,13 @@ void MidiNote::off(double p_at) {
 	}
 }
 
+void MidiNote::express(int p_expression, double p_value, double p_at) {
+	ERR_FAIL_COND_MSG(p_expression < 0 || p_expression >= int(gaph::midi::Expression::COUNT), "MidiNote: not a NoteExpression.");
+	if (MidiDriver *d = driver_or_null()) {
+		d->note_expression(id, channel, key, p_expression, p_value, p_at);
+	}
+}
+
 bool MidiNote::is_active() const {
 	MidiDriver *d = driver_or_null();
 	return d && d->note_state(id) != NoteState::ENDED;
@@ -44,6 +51,21 @@ bool MidiNote::is_sounding() const {
 
 void MidiNote::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("off", "at"), &MidiNote::off, DEFVAL(Transport::NOW));
+	ClassDB::bind_method(D_METHOD("express", "expression", "value", "at"), &MidiNote::express, DEFVAL(Transport::NOW));
+	ClassDB::bind_method(D_METHOD("tune", "semitones", "at"), &MidiNote::tune, DEFVAL(Transport::NOW));
+	ClassDB::bind_method(D_METHOD("volume", "gain", "at"), &MidiNote::volume, DEFVAL(Transport::NOW));
+	ClassDB::bind_method(D_METHOD("pan", "pan", "at"), &MidiNote::pan, DEFVAL(Transport::NOW));
+	ClassDB::bind_method(D_METHOD("vibrato", "amount", "at"), &MidiNote::vibrato, DEFVAL(Transport::NOW));
+	ClassDB::bind_method(D_METHOD("expression", "amount", "at"), &MidiNote::expression, DEFVAL(Transport::NOW));
+	ClassDB::bind_method(D_METHOD("brightness", "amount", "at"), &MidiNote::brightness, DEFVAL(Transport::NOW));
+	ClassDB::bind_method(D_METHOD("pressure", "amount", "at"), &MidiNote::pressure, DEFVAL(Transport::NOW));
+	BIND_ENUM_CONSTANT(EXPRESSION_VOLUME);
+	BIND_ENUM_CONSTANT(EXPRESSION_PAN);
+	BIND_ENUM_CONSTANT(EXPRESSION_TUNING);
+	BIND_ENUM_CONSTANT(EXPRESSION_VIBRATO);
+	BIND_ENUM_CONSTANT(EXPRESSION_EXPRESSION);
+	BIND_ENUM_CONSTANT(EXPRESSION_BRIGHTNESS);
+	BIND_ENUM_CONSTANT(EXPRESSION_PRESSURE);
 	ClassDB::bind_method(D_METHOD("is_active"), &MidiNote::is_active);
 	ClassDB::bind_method(D_METHOD("is_sounding"), &MidiNote::is_sounding);
 	ClassDB::bind_method(D_METHOD("get_id"), &MidiNote::get_id);
@@ -200,6 +222,17 @@ void MidiDriver::note_off(int p_channel, int p_key, double p_at) {
 	if (check_channel(p_channel) && check_7bit(p_key, "note")) {
 		seq.note_off(uint8_t(p_channel), uint16_t(p_key), p_at, get_time_us());
 	}
+}
+
+// A note's expression goes where its note went (the sequencer routes by note id), and only while
+// the note is still on: a value for an ended note has nothing to change.
+void MidiDriver::note_expression(int64_t p_id, int p_channel, int p_key, int p_expression, double p_value, double p_at) {
+	if (seq.note_state(p_id) == NoteState::ENDED) {
+		return;
+	}
+	ERR_FAIL_COND_MSG(std::isnan(p_at), "MidiNote: that position is never reached (outside the running loop).");
+	const auto e = gaph::midi::Expression(p_expression);
+	seq.post(Event{ Kind::NOTE_EXPRESSION, uint8_t(p_channel), gaph::midi::expression_index(uint16_t(p_key), e), gaph::midi::pack_expression(e, p_value), p_id }, p_at, get_time_us());
 }
 
 void MidiDriver::end_note(int64_t p_id, double p_at) {
@@ -480,6 +513,7 @@ void MidiDriver::_bind_methods() {
 	BIND_ENUM_CONSTANT(EVENT_POLY_PRESSURE);
 	BIND_ENUM_CONSTANT(EVENT_CHANNEL_PRESSURE);
 	BIND_ENUM_CONSTANT(EVENT_PROGRAM);
+	BIND_ENUM_CONSTANT(EVENT_NOTE_EXPRESSION);
 	BIND_ENUM_CONSTANT(STOP_WITHDRAW);
 	BIND_ENUM_CONSTANT(STOP_RELEASE);
 	BIND_ENUM_CONSTANT(STOP_CUT);

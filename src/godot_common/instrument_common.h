@@ -37,7 +37,7 @@ public:
 	void event(gaph::HostedEffect &p_hosted, int64_t p_time_us, int64_t p_source, int p_kind, int p_channel, int p_index, int64_t p_value,
 			int64_t p_note_id) {
 		using gaph::midi::Kind;
-		ERR_FAIL_COND_MSG(p_kind < int(Kind::NOTE_ON) || p_kind > int(Kind::PROGRAM), vformat("Instrument: unknown MIDI event kind %d.", p_kind));
+		ERR_FAIL_COND_MSG(p_kind < int(Kind::NOTE_ON) || (p_kind > int(Kind::PROGRAM) && p_kind != int(Kind::NOTE_EXPRESSION)), vformat("Instrument: unknown MIDI event kind %d.", p_kind));
 		ERR_FAIL_COND_MSG(p_channel < 1 || p_channel > 16, vformat("Instrument: channel %d is not 1-16.", p_channel));
 		const uint64_t source = uint64_t(p_source);
 		if (p_kind == int(Kind::NOTE_ON)) {
@@ -46,6 +46,10 @@ public:
 			notes.note_off(source, p_note_id, uint8_t(p_channel), uint16_t(p_index), p_time_us);
 		}
 		queue(p_hosted, p_kind, p_channel, p_index, uint32_t(p_value), p_note_id, source, p_time_us);
+		if (p_kind == int(Kind::NOTE_EXPRESSION) && !warned_expressions && p_hosted.take_expressions_dropped() > 0) {
+			warned_expressions = true; // once per instrument
+			WARN_PRINT("Instrument: this plugin takes notes only as MIDI, so a per-note expression is sent as a channel message only while its note is alone on its channel; on chords it is dropped. Pressure always works (as polyphonic aftertouch).");
+		}
 	}
 
 	// midi_stop(time_us, source, mode): the audio side drops that source's events from time_us on;
@@ -101,6 +105,7 @@ private:
 	}
 
 	gaph::midi::NoteBook notes;
+	bool warned_expressions = false;
 };
 
 // SAVING, as for effects: `plugin_state`, the plugin's own complete state as bytes, and

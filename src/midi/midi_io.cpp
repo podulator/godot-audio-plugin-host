@@ -99,17 +99,52 @@ void MidiOutput::send_bytes(const PackedByteArray &p_bytes) {
 // MAIN THREAD (the driver). Values at MIDI 2.0 resolution, scaled down to MIDI 1.0 bytes.
 void MidiOutput::midi_event(int64_t p_time_us, int64_t p_source, int p_kind, int p_channel, int p_index, int64_t p_value, int64_t p_note_id) {
 	const Kind kind = Kind(p_kind);
-	if (p_kind < 0 || p_kind > int(Kind::CHOKE) || p_channel < 1 || p_channel > 16) {
+	if (p_kind < 0 || p_channel < 1 || p_channel > 16 || (p_kind > int(Kind::CHOKE) && kind != Kind::NOTE_EXPRESSION)) {
 		return;
 	}
-	uint8_t b[3];
-	gaph::midi::encode_midi1(kind, uint8_t(p_channel), uint16_t(p_index), uint32_t(p_value), b);
-	const size_t n = (kind == Kind::PROGRAM || kind == Kind::CHANNEL_PRESSURE) ? 2 : 3;
-	if (kind == Kind::NOTE_ON) {
-		book.note_on(uint64_t(p_source), p_note_id, uint8_t(p_channel), uint16_t(p_index), p_time_us);
-	} else if (kind == Kind::NOTE_OFF) {
-		book.note_off(uint64_t(p_source), p_note_id, uint8_t(p_channel), uint16_t(p_index), p_time_us);
+	if (kind == Kind::NOTE_EXPRESSION) {
+		expression(p_time_us, uint64_t(p_source), p_channel, p_index, uint32_t(p_value), p_note_id);
+		return;
 	}
+	// The channel on the wire: a note's own under MPE (member channels 2-16, round robin, a free
+	// one first), else the driver's.
+	int ch = p_channel;
+	if (kind == Kind::NOTE_ON) {
+		if (mpe) {
+			int pick = 0;
+			for (int i = 0; i < 15 && !pick; i++) {
+				const int c = 1 + (next_member - 1 + i) % 15; // index 1-15: channels 2-16
+				if (!member_note[c]) {
+					pick = c;
+				}
+			}
+			pick = pick ? pick : next_member; // all taken: the next in turn is shared
+			next_member = 1 + pick % 15;
+			member_note[pick] = p_note_id;
+			ch = pick + 1;
+			uint8_t centre[3];
+			gaph::midi::encode_midi1(Kind::PITCH_BEND, uint8_t(ch), 0, 0x80000000u, centre); // a fresh note starts unbent
+			queue(p_time_us + delay_us(), uint64_t(p_source), std::vector<uint8_t>(centre, centre + 3));
+		}
+		note_channel[p_note_id] = ch;
+		on_channel[(ch - 1) & 15]++;
+		book.note_on(uint64_t(p_source), p_note_id, uint8_t(ch), uint16_t(p_index), p_time_us);
+	} else if (kind == Kind::NOTE_OFF || kind == Kind::CHOKE) {
+		if (int c = member_channel(p_note_id)) {
+			ch = c;
+			note_channel.erase(p_note_id);
+			if (on_channel[(ch - 1) & 15] > 0) {
+				on_channel[(ch - 1) & 15]--;
+			}
+			if (mpe && member_note[(ch - 1) & 15] == p_note_id) {
+				member_note[(ch - 1) & 15] = 0;
+			}
+		}
+		book.note_off(uint64_t(p_source), p_note_id, uint8_t(ch), uint16_t(p_index), p_time_us);
+	}
+	uint8_t b[3];
+	gaph::midi::encode_midi1(kind, uint8_t(ch), uint16_t(p_index), uint32_t(p_value), b);
+	const size_t n = (kind == Kind::PROGRAM || kind == Kind::CHANNEL_PRESSURE) ? 2 : 3;
 	queue(p_time_us + delay_us(), uint64_t(p_source), std::vector<uint8_t>(b, b + n));
 }
 
@@ -128,6 +163,14 @@ void MidiOutput::midi_stop(int64_t p_time_us, int64_t p_source, int p_mode) {
 	}
 	bool channels[16] = {};
 	for (const gaph::midi::NoteBook::Sounding &s : book.stop(uint64_t(p_source), p_time_us)) {
+		if (member_channel(s.note_id)) {
+			note_channel.erase(s.note_id);
+			int16_t &count = on_channel[(s.channel - 1) & 15];
+			count = count > 0 ? int16_t(count - 1) : int16_t(0);
+			if (member_note[(s.channel - 1) & 15] == s.note_id) {
+				member_note[(s.channel - 1) & 15] = 0;
+			}
+		}
 		uint8_t b[3];
 		gaph::midi::encode_midi1(Kind::NOTE_OFF, s.channel, s.key, 0x8000, b);
 		queue(due, uint64_t(p_source), std::vector<uint8_t>(b, b + 3));
@@ -316,7 +359,81 @@ void MidiOutput::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_delay_ms", "ms"), &MidiOutput::set_delay_ms);
 	ClassDB::bind_method(D_METHOD("get_delay_ms"), &MidiOutput::get_delay_ms);
 	ClassDB::bind_method(D_METHOD("send_bytes", "bytes"), &MidiOutput::send_bytes);
+	ClassDB::bind_method(D_METHOD("set_mpe", "on"), &MidiOutput::set_mpe);
+	ClassDB::bind_method(D_METHOD("get_mpe"), &MidiOutput::get_mpe);
+	ClassDB::bind_method(D_METHOD("set_pitch_bend_range", "semitones"), &MidiOutput::set_pitch_bend_range);
+	ClassDB::bind_method(D_METHOD("get_pitch_bend_range"), &MidiOutput::get_pitch_bend_range);
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "mpe"), "set_mpe", "get_mpe");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "pitch_bend_range", PROPERTY_HINT_RANGE, "0.5,96,0.5,suffix:semitones"), "set_pitch_bend_range", "get_pitch_bend_range");
 	ClassDB::bind_method(D_METHOD("midi_event", "time_us", "source", "kind", "channel", "index", "value", "note_id"), &MidiOutput::midi_event);
 	ClassDB::bind_method(D_METHOD("midi_stop", "time_us", "source", "mode"), &MidiOutput::midi_stop);
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "delay_ms", PROPERTY_HINT_RANGE, "-1,500,0.5,suffix:ms"), "set_delay_ms", "get_delay_ms");
+}
+
+// --- MidiOutput: note expressions and MPE -------------------------------------------------------
+
+void MidiOutput::set_pitch_bend_range(double p_semitones) {
+	ERR_FAIL_COND_MSG(!(p_semitones > 0) || p_semitones > 96, "MidiOutput: a pitch bend range is above 0, at most 96 semitones.");
+	bend_range = p_semitones;
+}
+
+// MPE on: the MIDI Polyphonic Expression configuration message on channel 1 (RPN 6: a lower zone
+// with 15 member channels), and each member channel's pitch bend range (RPN 0) to bend_range,
+// 48 semitones by MPE's default. Off: the zone is closed (0 member channels).
+void MidiOutput::set_mpe(bool p_on) {
+	mpe = p_on;
+	if (p_on) {
+		bend_range = 48.0;
+	}
+	const int64_t now = gaph::host_time_us();
+	queue(now, 0, { 0xB0, 101, 0 });
+	queue(now, 0, { 0xB0, 100, 6 });
+	queue(now, 0, { 0xB0, 6, uint8_t(p_on ? 15 : 0) });
+	for (int c = 1; p_on && c < 16; c++) {
+		const uint8_t s = uint8_t(0xB0 | c);
+		queue(now, 0, { s, 101, 0 });
+		queue(now, 0, { s, 100, 0 });
+		queue(now, 0, { s, 6, uint8_t(bend_range) });
+		queue(now, 0, { s, 38, 0 });
+	}
+	std::fill(std::begin(member_note), std::end(member_note), 0);
+	note_channel.clear();
+}
+
+int MidiOutput::member_channel(int64_t p_note_id) const {
+	auto it = note_channel.find(p_note_id);
+	return it == note_channel.end() ? 0 : it->second;
+}
+
+void MidiOutput::expression(int64_t p_time_us, uint64_t p_source, int p_channel, int p_index, uint32_t p_value, int64_t p_note_id) {
+	using gaph::midi::Expression;
+	const Expression e = gaph::midi::expression_of(uint16_t(p_index));
+	const uint16_t key = gaph::midi::expression_key(uint16_t(p_index));
+	const double v = gaph::midi::unpack_expression(e, p_value);
+	int ch = member_channel(p_note_id);
+	if (!ch) {
+		return; // not a note this output is sounding
+	}
+	uint8_t b[3];
+	size_t n = 3;
+	if (e == Expression::PRESSURE) {
+		const uint32_t amount = uint32_t(std::llround(std::clamp(v, 0.0, 1.0) * 4294967295.0));
+		if (mpe) {
+			gaph::midi::encode_midi1(Kind::CHANNEL_PRESSURE, uint8_t(ch), 0, amount, b);
+			n = 2;
+		} else {
+			gaph::midi::encode_midi1(Kind::POLY_PRESSURE, uint8_t(ch), key, amount, b);
+		}
+	} else {
+		gaph::midi::Stand_in s;
+		if ((!mpe && on_channel[(ch - 1) & 15] != 1) || !gaph::midi::channel_stand_in(e, v, bend_range, s)) {
+			if (!warned_expressions) {
+				warned_expressions = true;
+				WARN_PRINT("MidiOutput: without MPE, a per-note expression is sent as a channel message only while its note is alone on its channel; on chords it is dropped (set mpe for gear that speaks MPE). Pressure always works, as polyphonic aftertouch.");
+			}
+			return;
+		}
+		gaph::midi::encode_midi1(s.kind, uint8_t(ch), s.index, s.value, b);
+	}
+	queue(p_time_us + delay_us(), p_source, std::vector<uint8_t>(b, b + n));
 }

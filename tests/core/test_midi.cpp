@@ -1,5 +1,6 @@
 // Standalone tests for the MIDI driver's core (src/core/midi_*.h), with made-up times, so every
 // result is exact to the microsecond. Build and run: tests/core/run.sh
+#include "core/midi_expression.h"
 #include "core/midi_file.h"
 #include "core/midi_sequencer.h"
 
@@ -643,6 +644,21 @@ static void test_part_mute_and_channel() {
 	CHECK(rec.of(Kind::NOTE_ON).size() == rec.of(Kind::NOTE_OFF).size());
 }
 
+// Note expressions: values packed and back without loss worth hearing; stand-in channel messages.
+static void test_expression_values() {
+	CHECK(unpack_expression(Expression::TUNING, pack_expression(Expression::TUNING, -0.5)) == -0.5);
+	CHECK(unpack_expression(Expression::TUNING, pack_expression(Expression::TUNING, 12.25)) == 12.25);
+	CHECK(std::fabs(unpack_expression(Expression::VOLUME, pack_expression(Expression::VOLUME, 2.0)) - 2.0) < 1e-8);
+	CHECK(pack_expression(Expression::PAN, 0.0) == 0 && pack_expression(Expression::PAN, 1.0) == 0xFFFFFFFFu && pack_expression(Expression::PAN, 7.0) == 0xFFFFFFFFu);
+	const uint16_t i = expression_index(60, Expression::BRIGHTNESS);
+	CHECK(expression_key(i) == 60 && expression_of(i) == Expression::BRIGHTNESS);
+	Stand_in s;
+	CHECK(channel_stand_in(Expression::TUNING, 0.0, 2.0, s) && s.kind == Kind::PITCH_BEND && s.value == 0x80000000u); // no tuning: no bend
+	CHECK(channel_stand_in(Expression::TUNING, 2.0, 2.0, s) && s.value == 0xFFFFFFFFu && channel_stand_in(Expression::TUNING, -9.0, 2.0, s) && s.value == 0);
+	CHECK(channel_stand_in(Expression::BRIGHTNESS, 1.0, 2.0, s) && s.kind == Kind::CONTROL && s.index == 74);
+	CHECK(!channel_stand_in(Expression::PRESSURE, 0.5, 2.0, s)); // pressure has its own per-note message
+}
+
 int main() {
 	test_values();
 	test_wire_encoding();
@@ -662,6 +678,7 @@ int main() {
 	test_part_tempo_map();
 	test_running_part();
 	test_part_mute_and_channel();
+	test_expression_values();
 	std::printf(failures ? "%d MIDI FAILURES\n" : "all MIDI core tests passed\n", failures);
 	return failures ? 1 : 0;
 }

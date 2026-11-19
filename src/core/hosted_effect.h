@@ -154,6 +154,8 @@ public:
 	uint64_t frames_processed();
 	// MAIN THREAD. Whether the running plugin (the first live instance) sleeps right now.
 	bool is_sleeping();
+	// MAIN THREAD. Note expressions the running plugin had to drop since the last call.
+	uint32_t take_expressions_dropped();
 
 private:
 	std::unique_ptr<PluginProcessor> create(std::string &r_error);

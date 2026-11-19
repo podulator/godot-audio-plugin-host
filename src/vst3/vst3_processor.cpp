@@ -1,4 +1,7 @@
 #include "vst3_processor.h"
+
+#include "core/midi_expression.h"
+#include "pluginterfaces/vst/ivstnoteexpression.h"
 #include "core/native_window.h"
 #include "core/channel_map.h"
 #include "core/midi_values.h"
@@ -402,6 +405,33 @@ void Vst3Processor::play_midi(const ParamEvent &p_event, int32 p_offset) {
 			return;
 		case Kind::TEMPO: // the driver's own, never sent to a target
 			return;
+		case Kind::NOTE_EXPRESSION: {
+			// VST3's Note Expression, normalised 0..1 (its type ids are in our order, CLAP's):
+			// volume norm = gain / 4 (0.25 is 0 dB), tuning norm = semitones / 240 + 0.5 (+-120).
+			// Pressure has no Note Expression type: VST3's polyphonic pressure event instead.
+			using gaph::midi::Expression;
+			const Expression x = gaph::midi::expression_of(p_event.midi_index);
+			const double v = gaph::midi::unpack_expression(x, p_event.midi_value);
+			const int32 id = p_event.note_id >= 0 ? int32(p_event.note_id & 0x7FFFFFFF) : -1;
+			if (x == Expression::PRESSURE) {
+				e.type = Event::kPolyPressureEvent;
+				e.polyPressure = { ch, int16(gaph::midi::expression_key(p_event.midi_index)), float(std::clamp(v, 0.0, 1.0)), id };
+				in_events.addEvent(e);
+				return;
+			}
+			double norm = v;
+			if (x == Expression::VOLUME) {
+				norm = v / 4.0;
+			} else if (x == Expression::TUNING) {
+				norm = v / 240.0 + 0.5;
+			}
+			e.type = Event::kNoteExpressionValueEvent;
+			e.noteExpressionValue.typeId = NoteExpressionTypeID(int(x));
+			e.noteExpressionValue.noteId = id;
+			e.noteExpressionValue.value = std::clamp(norm, 0.0, 1.0);
+			in_events.addEvent(e);
+			return;
+		}
 	}
 }
 

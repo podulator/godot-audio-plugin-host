@@ -643,6 +643,8 @@ private:
 				break; // never sent by a driver (instruments use it for midi_stop's CUT)
 			case Kind::TEMPO:
 				break; // handled above
+			case Kind::NOTE_EXPRESSION:
+				break; // belongs to one note: nothing to chase
 		}
 	}
 

@@ -2,6 +2,7 @@
 
 ## In development
 
+- **Per-note expressions:** `MidiNote.tune()`, `volume()`, `pan()`, `vibrato()`, `expression()`, `brightness()` and `pressure()` change one note, not its channel: natively for CLAP note expressions and VST3 Note Expression, through MPE on a `MidiOutput` (`mpe`), and otherwise as pressure (polyphonic aftertouch) and channel messages only while the note is alone on its channel.
 - **MIDI devices:** `MidiInput` reads a MIDI port and plays it through a `MidiDriver` (live notes end on its stop and panic) or hands it to scripts (`received`), with an optional fixed latency for exact spacing; `MidiOutput` sends a driver's notes, clips and controllers to a port, each at its moment, delayed by the audio's output latency so gear and game sound together. ALSA on Linux, CoreMIDI on macOS, WinMM on Windows; none on Android yet.
 - **MIDI files and patterns:** `MidiClip`, imported from `.mid` (MIDI 1.0) and `.midi2` (MIDI 2.0 Clip File) files, loaded at run time with `load_file()`, or built in code. `MidiDriver.place_clip()` puts one on the song's timeline (seek and loop go through it, controllers and tempo are chased, its tempo map sets the tempo on the exact beat); `play_clip()` plays one from a moment on, any number of times. `MidiPart` mutes a part or its tracks, moves its channels, or removes it.
 

@@ -1,4 +1,6 @@
 #include "clap_processor.h"
+
+#include "core/midi_expression.h"
 #include "core/native_window.h"
 #include "core/channel_map.h"
 #include "core/midi_values.h"
@@ -478,6 +480,48 @@ void ClapProcessor::translate_midi(const ParamEvent &p_src, uint32_t p_time, InE
 	r_out.header.time = p_time;
 	r_out.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
 	r_out.header.flags = 0;
+	// Which notes sound on which channel, for expressions on plugins that only take MIDI.
+	uint16_t &on_channel = sounding_on_channel[(p_src.midi_channel - 1) & 15];
+	if (kind == Kind::NOTE_ON) {
+		on_channel++;
+	} else if ((kind == Kind::NOTE_OFF || kind == Kind::CHOKE) && on_channel > 0) {
+		on_channel--;
+	}
+	if (kind == Kind::NOTE_EXPRESSION) {
+		using gaph::midi::Expression;
+		const Expression e = gaph::midi::expression_of(p_src.midi_index);
+		const uint16_t key = gaph::midi::expression_key(p_src.midi_index);
+		const double value = gaph::midi::unpack_expression(e, p_src.midi_value);
+		if (clap_notes) { // natively: the plugin applies it to that note
+			clap_event_note_expression_t &ev = r_out.expression;
+			ev.header.size = sizeof(clap_event_note_expression_t);
+			ev.header.type = CLAP_EVENT_NOTE_EXPRESSION;
+			ev.expression_id = clap_note_expression(int(e)); // our order is CLAP's
+			ev.note_id = p_src.note_id >= 0 ? int32_t(p_src.note_id & 0x7FFFFFFF) : -1;
+			ev.port_index = 0;
+			ev.channel = int16_t(p_src.midi_channel - 1);
+			ev.key = int16_t(key);
+			ev.value = value;
+			r_sent = true;
+			return;
+		}
+		// MIDI only: pressure as polyphonic aftertouch; the rest only while the note is alone on
+		// its channel, where the channel message is exact. Then translated as that message.
+		ParamEvent stand = p_src;
+		if (e == Expression::PRESSURE) {
+			stand.midi_kind = uint8_t(Kind::POLY_PRESSURE), stand.midi_index = key;
+			stand.midi_value = uint32_t(std::llround(std::clamp(value, 0.0, 1.0) * 4294967295.0));
+		} else {
+			gaph::midi::Stand_in s;
+			if (on_channel != 1 || !gaph::midi::channel_stand_in(e, value, 2.0, s)) {
+				expressions_dropped.fetch_add(1, std::memory_order_relaxed);
+				return;
+			}
+			stand.midi_kind = uint8_t(s.kind), stand.midi_index = s.index, stand.midi_value = s.value;
+		}
+		translate_midi(stand, p_time, r_out, r_sent);
+		return;
+	}
 	if (is_note && clap_notes) {
 		clap_event_note_t &ev = r_out.note;
 		ev.header.size = sizeof(clap_event_note_t);

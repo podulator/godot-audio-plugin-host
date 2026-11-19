@@ -210,12 +210,24 @@ private:
 		clap_event_midi_t midi;
 		clap_event_midi2_t midi2;
 		clap_event_transport_t transport;
+		clap_event_note_expression_t expression;
 	};
 	std::vector<InEvent> in_event_storage;
 	// The plugin's note input (CLAP_EXT_NOTE_PORTS): which ways of sending notes it takes
 	// (CLAP_NOTE_DIALECT_* bits), 0 if it has no note input at all.
 	uint32_t note_dialects = 0;
 	void translate_midi(const ParamEvent &p_src, uint32_t p_time, InEvent &r_out, bool &r_sent);
+
+	// NOTE EXPRESSIONS for a plugin without CLAP note events (core/midi_expression.h, "exact or
+	// nothing"): how many notes sound on each channel (AUDIO thread), and how many expressions had
+	// to be dropped because another note shared the channel (read on the main thread, for a notice).
+	uint16_t sounding_on_channel[16] = {};
+	std::atomic<uint32_t> expressions_dropped{ 0 };
+
+public:
+	uint32_t take_expressions_dropped() override { return expressions_dropped.exchange(0, std::memory_order_relaxed); }
+
+private:
 
 	// The transport, for an instrument fed by a MidiDriver (none for effects: proc.transport stays
 	// nullptr, as a game has no timeline). See core/midi_target.h; `at` is in steady time.

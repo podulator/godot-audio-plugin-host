@@ -27,6 +27,8 @@ func _ready() -> void:
 	await _test_pattern()
 	await _test_input_injected()
 	await _test_ports_loopback()
+	await _test_output_expressions()
+	await _test_expression_protocol()
 	print("MIDI %s" % ("OK" if failures == 0 else "FAILED (%d)" % failures))
 	get_tree().quit(1 if failures else 0)
 
@@ -340,3 +342,78 @@ func _test_ports_loopback() -> void:
 	far.queue_free()
 	input.queue_free()
 	out.close()
+
+
+# MidiOutput and note expressions, as bytes on the wire (through Midi Through). With mpe, a note
+# gets member channel 2 (unbent first), its tuning becomes that channel's pitch bend over +-48
+# semitones, its pressure channel pressure; a second note gets channel 3. Without mpe, pressure
+# goes as polyphonic aftertouch, and tuning on a chord is dropped.
+func _test_output_expressions() -> void:
+	var through := ""
+	for p in MidiInput.get_ports():
+		if p.name.contains("Midi Through"):
+			through = p.id
+	if through.is_empty():
+		print("SKIP  no Midi Through port: MidiOutput expressions not tested")
+		return
+	var out := MidiOutput.open(through)
+	out.delay_ms = 0.0
+	var input := MidiInput.new()
+	add_child(input)
+	input.open(through)
+	var wire := []
+	input.raw_received.connect(func(b: PackedByteArray, _t: int) -> void: wire.append(Array(b)))
+	var midi := MidiDriver.create(1)
+	add_child(midi)
+	midi.set_channel_target(1, out)
+	out.mpe = true
+	await _frames(0.15)
+	_check(wire.size() >= 3 and wire[0] == [0xB0, 101, 0] and wire[1] == [0xB0, 100, 6] and wire[2] == [0xB0, 6, 15], "mpe on: the MPE configuration message, 15 member channels (%s)" % [wire.slice(0, 3)])
+	wire.clear()
+	var a := midi.note_on(1, 60, 100)
+	var b := midi.note_on(1, 64, 100)
+	await _frames(0.1)
+	a.tune(1.0)
+	a.pressure(0.5)
+	await _frames(0.15)
+	var bend := 8192 + int(8191.0 / 48.0) # +1 semitone of +-48
+	_check(wire.has([0xE1, 0, 0x40]) and wire.has([0x91, 60, 100]) and wire.has([0x92, 64, 100]), "mpe: each note on a member channel of its own, unbent first (%s)" % [wire])
+	_check(wire.has([0xE1, bend & 0x7F, bend >> 7]), "mpe: tuning +1 is channel 2's pitch bend (want %d)" % bend)
+	_check(wire.has([0xD1, 64]), "mpe: pressure 0.5 is channel 2's channel pressure")
+	a.off()
+	b.off()
+	await _frames(0.1)
+	out.mpe = false
+	await _frames(0.1)
+	wire.clear()
+	var c := midi.note_on(1, 60, 100)
+	midi.note_on(1, 67, 100)
+	await _frames(0.1)
+	c.tune(1.0) # a chord on channel 1: dropped
+	c.pressure(0.5)
+	await _frames(0.15)
+	_check(wire.has([0xA0, 60, 64]) and not wire.any(func(m): return m[0] == 0xE0), "no mpe: pressure as polyphonic aftertouch, tuning on a chord dropped (%s)" % [wire])
+	midi.queue_free()
+	input.queue_free()
+	out.close()
+
+
+# What a script target gets for a note expression: EVENT_NOTE_EXPRESSION, index key + 256 x the
+# expression, the value packed (tuning: semitones x 65536), with the note's id.
+func _test_expression_protocol() -> void:
+	var midi := MidiDriver.create(2)
+	add_child(midi)
+	var rec := Recorder.new()
+	midi.set_channel_target(1, rec)
+	var n := midi.note_on(1, 60, 40000)
+	n.tune(-0.5)
+	await _frames(0.05)
+	var x := rec.of(MidiDriver.EVENT_NOTE_EXPRESSION)
+	_check(x.size() == 1 and x[0].index == 60 + 256 * MidiNote.EXPRESSION_TUNING and x[0].note_id == n.get_id() and x[0].value == (-32768 & 0xFFFFFFFF),
+			"a target gets the expression: kind, key + 256 x tuning, packed -0.5 semitones (%s)" % [x])
+	n.off()
+	await _frames(0.05)
+	n.tune(1.0) # ended: nothing more
+	await _frames(0.05)
+	_check(rec.of(MidiDriver.EVENT_NOTE_EXPRESSION).size() == 1, "an ended note's expression goes nowhere")
+	midi.queue_free()

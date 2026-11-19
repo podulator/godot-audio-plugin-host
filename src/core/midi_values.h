@@ -30,6 +30,8 @@ enum class Kind : uint8_t {
 	// Internal to the driver, never sent to a target: a tempo change from a clip's tempo map, at
 	// its beat (value: 10 ns units per beat, as midi_clip.h's ClipTempo).
 	TEMPO,
+	// A value for one note (midi_expression.h): index is key + 256 * expression, value packed.
+	NOTE_EXPRESSION,
 };
 
 // One message, as it travels inside: channel 1-16, values at MIDI 2.0 resolution.
@@ -151,6 +153,7 @@ inline void encode_midi1(Kind p_kind, uint8_t p_channel, uint16_t p_index, uint3
 			r_bytes[0] = 0xB0 | ch, r_bytes[1] = 120, r_bytes[2] = 0;
 			return;
 		case Kind::TEMPO: // never reaches a plugin; a harmless no-op if it did
+		case Kind::NOTE_EXPRESSION: // turned into a channel message first (midi_expression.h)
 			r_bytes[0] = 0xB0 | ch, r_bytes[1] = 0x7F, r_bytes[2] = 0;
 			return;
 	}
@@ -189,6 +192,7 @@ inline void encode_midi2(Kind p_kind, uint8_t p_channel, uint16_t p_index, uint3
 			r_words[0] = head(0xB, 120), r_words[1] = 0;
 			return;
 		case Kind::TEMPO:
+		case Kind::NOTE_EXPRESSION:
 			r_words[0] = head(0xB, 0x7F), r_words[1] = 0;
 			return;
 	}

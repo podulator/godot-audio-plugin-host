@@ -6,7 +6,7 @@
  *   org.godot-audio-plugin-host.test-drums            three outputs: Main, Kick (key 36), Snare (38)
  *
  * No oscillator: every sounding note adds a constant, velocity (0..1) x 0.25, to both outputs, and
- * channel volume (CC 7, 0..127) scales the sum. So a note's start and end show as exact steps in
+ * channel volume (CC 7, 0..127) scales the sum, and the CLAP volume note expression (0..4) one note. So a note's start and end show as exact steps in
  * the audio, on the very sample its event names, and the level says how many notes sound and how
  * loud. A choke, or All Sound Off (CC 120), silences notes like a note-off. No audio input.
  * With no note sounding it returns CLAP_PROCESS_SLEEP, so the host may stop calling it.
@@ -34,6 +34,7 @@ typedef struct {
 	int16_t channel, key;
 	int32_t note_id;
 	float level;
+	double velocity;
 } Note;
 
 typedef struct {
@@ -87,6 +88,7 @@ static void note_start(Instrument *s, int16_t channel, int16_t key, int32_t note
 		n->key = key;
 		n->note_id = note_id;
 		n->level = (float)(velocity * 0.25);
+		n->velocity = velocity;
 	}
 }
 
@@ -176,6 +178,14 @@ static void handle_event(Instrument *s, const clap_event_header_t *h) {
 		}
 	} else if (h->type == CLAP_EVENT_MIDI) {
 		handle_midi1(s, ((const clap_event_midi_t *)h)->data);
+	} else if (!s->midi_only && h->type == CLAP_EVENT_NOTE_EXPRESSION) {
+		/* Volume, for that note only: its level is velocity x 0.25 x the gain (0..4). */
+		const clap_event_note_expression_t *e = (const clap_event_note_expression_t *)h;
+		for (int i = 0; e->expression_id == CLAP_NOTE_EXPRESSION_VOLUME && i < s->note_count; i++) {
+			if (s->notes[i].note_id == e->note_id) {
+				s->notes[i].level = (float)(s->notes[i].velocity * 0.25 * e->value);
+			}
+		}
 	}
 }
 

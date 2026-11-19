@@ -15,6 +15,31 @@
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="brightness">
+			<return type="void" />
+			<param index="0" name="amount" type="float" />
+			<param index="1" name="at" type="float" default="-1.0" />
+			<description>
+				The note's brightness, 0 to 1: MPE's timbre, CC 74 where it degrades to MIDI. Takes an optional [param at], like every message.
+			</description>
+		</method>
+		<method name="express">
+			<return type="void" />
+			<param index="0" name="expression" type="int" />
+			<param index="1" name="value" type="float" />
+			<param index="2" name="at" type="float" default="-1.0" />
+			<description>
+				Sets one of the note's expressions ([enum NoteExpression]) to [param value]: for this note only, not its whole channel. The named methods ([method tune], [method volume] ...) do the same. How a target applies it, best first: a plugin taking per-note expressions natively (CLAP note expressions, VST3 Note Expression) gets it as such; a [MidiOutput] with [member MidiOutput.mpe] gives the note a channel of its own; otherwise pressure goes as polyphonic aftertouch, and the others only while the note is alone on its channel (where the channel message is exact), and are dropped on chords, with one warning. Takes an optional [param at], like every message.
+			</description>
+		</method>
+		<method name="expression">
+			<return type="void" />
+			<param index="0" name="amount" type="float" />
+			<param index="1" name="at" type="float" default="-1.0" />
+			<description>
+				The note's expression, 0 to 1, as the plugin defines it (often a swell). Takes an optional [param at], like every message.
+			</description>
+		</method>
 		<method name="get_channel" qualifiers="const">
 			<return type="int" />
 			<description>
@@ -52,5 +77,68 @@
 				Ends this note, now or at [param at] (see [method MidiDriver.note_on] for [param at]). A note that has not started yet never starts.
 			</description>
 		</method>
+		<method name="pan">
+			<return type="void" />
+			<param index="0" name="pan" type="float" />
+			<param index="1" name="at" type="float" default="-1.0" />
+			<description>
+				The note's position, 0 (left) to 1 (right), 0.5 the centre. Takes an optional [param at], like every message.
+			</description>
+		</method>
+		<method name="pressure">
+			<return type="void" />
+			<param index="0" name="amount" type="float" />
+			<param index="1" name="at" type="float" default="-1.0" />
+			<description>
+				The note's pressure, 0 to 1: per-note aftertouch. Works everywhere: as polyphonic aftertouch where a plugin takes only MIDI. Takes an optional [param at], like every message.
+			</description>
+		</method>
+		<method name="tune">
+			<return type="void" />
+			<param index="0" name="semitones" type="float" />
+			<param index="1" name="at" type="float" default="-1.0" />
+			<description>
+				Detunes the note by [param semitones], fractions allowed: a glide, or a microtonal note. Takes an optional [param at], like every message.
+			</description>
+		</method>
+		<method name="vibrato">
+			<return type="void" />
+			<param index="0" name="amount" type="float" />
+			<param index="1" name="at" type="float" default="-1.0" />
+			<description>
+				The note's vibrato amount, 0 to 1, as the plugin defines it. Takes an optional [param at], like every message.
+			</description>
+		</method>
+		<method name="volume">
+			<return type="void" />
+			<param index="0" name="gain" type="float" />
+			<param index="1" name="at" type="float" default="-1.0" />
+			<description>
+				The note's loudness as a linear gain, 0 to 4: 1 is unchanged, 2 about +6 dB. Takes an optional [param at], like every message.
+			</description>
+		</method>
 	</methods>
+	<constants>
+		<constant name="EXPRESSION_VOLUME" value="0" enum="NoteExpression">
+			A linear gain, 0 to 4 (1: unchanged).
+		</constant>
+		<constant name="EXPRESSION_PAN" value="1" enum="NoteExpression">
+			0 (left) to 1 (right).
+		</constant>
+		<constant name="EXPRESSION_TUNING" value="2" enum="NoteExpression">
+			Semitones, fractions allowed.
+		</constant>
+		<constant name="EXPRESSION_VIBRATO" value="3" enum="NoteExpression">
+			0 to 1.
+		</constant>
+		<constant name="EXPRESSION_EXPRESSION" value="4" enum="NoteExpression">
+			0 to 1.
+		</constant>
+		<constant name="EXPRESSION_BRIGHTNESS" value="5" enum="NoteExpression">
+			0 to 1.
+		</constant>
+		<constant name="EXPRESSION_PRESSURE" value="6" enum="NoteExpression">
+			0 to 1.
+		</constant>
+	</constants>
 </class>
