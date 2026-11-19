@@ -7,6 +7,7 @@
 // events, controllers through the plugin's IMidiMapping, the transport per process() call
 // (the runtime splits a block where it changes).
 
+#include "godot_common/midi_out_tap.h"
 #include "core/effect_runtime.h"
 #include "core/hosted_effect.h"
 #include "godot_common/editor_window.h"
@@ -69,6 +70,13 @@ public:
 	double get_parameter_modulation(int64_t p_id);
 	// Presets (PluginProcessor::list_presets): [{id, name, collection, creator, description, tags}].
 	TypedArray<Dictionary> get_presets();
+
+	// MIDI the plugin sends out (godot_common/midi_out_tap.h): the midi_output signal, and played
+	// through a MidiDriver if one is set.
+	void set_midi_output_driver(Object *p_driver) { midi_out.set_driver(p_driver); }
+	Object *get_midi_output_driver() const { return midi_out.get_driver(); }
+	void set_midi_output_latency_ms(double p_ms) { midi_out.set_latency_ms(p_ms); }
+	double get_midi_output_latency_ms() const { return midi_out.get_latency_ms(); }
 	bool load_preset(const String &p_id);
 	double get_parameter(int64_t p_id);
 	Dictionary get_plugin_info();
@@ -130,6 +138,7 @@ private:
 	VST3::Hosting::Module::Ptr module;
 	std::unique_ptr<gaph::Vst3Processor> probe;
 	mutable gaph::HostedEffect hosted; // mutable: see ClapInstrument
+	gaph_godot::MidiOutTap midi_out;
 	gaph_godot::InstrumentInput input;
 	gaph_godot::SharedVoice voice; // the one plugin instance all playbacks hear
 	PackedStringArray output_names; // from the plugin, when it loads; the main output first

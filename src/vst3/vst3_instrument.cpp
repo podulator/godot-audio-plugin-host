@@ -155,6 +155,7 @@ void Vst3Instrument::connect_idle() {
 
 void Vst3Instrument::on_process_frame() {
 	const std::vector<gaph::ParamEvent> idle_changes = hosted.idle(); // changes the plugin made itself
+	midi_out.drain(hosted, this);
 	// After idle(), which may have destroyed the instance showing the GUI: tick() reattaches it.
 	for (const gaph::ParamEvent &ev : idle_changes) {
 		emit_signal("parameter_changed", int64_t(ev.param_id), ev.value);
@@ -443,6 +444,12 @@ void Vst3Instrument::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_parameter_modulation", "id", "amount", "delay"), &Vst3Instrument::set_parameter_modulation, DEFVAL(0.0));
 	ClassDB::bind_method(D_METHOD("get_parameter_modulation", "id"), &Vst3Instrument::get_parameter_modulation);
 	ClassDB::bind_method(D_METHOD("get_presets"), &Vst3Instrument::get_presets);
+	ClassDB::bind_method(D_METHOD("set_midi_output_driver", "driver"), &Vst3Instrument::set_midi_output_driver);
+	ClassDB::bind_method(D_METHOD("get_midi_output_driver"), &Vst3Instrument::get_midi_output_driver);
+	ClassDB::bind_method(D_METHOD("set_midi_output_latency_ms", "ms"), &Vst3Instrument::set_midi_output_latency_ms);
+	ClassDB::bind_method(D_METHOD("get_midi_output_latency_ms"), &Vst3Instrument::get_midi_output_latency_ms);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midi_output_latency_ms", PROPERTY_HINT_RANGE, "0,200,0.5,suffix:ms", PROPERTY_USAGE_NONE), "set_midi_output_latency_ms", "get_midi_output_latency_ms");
+	ADD_SIGNAL(MethodInfo("midi_output", PropertyInfo(Variant::INT, "kind"), PropertyInfo(Variant::INT, "channel"), PropertyInfo(Variant::INT, "index"), PropertyInfo(Variant::INT, "value"), PropertyInfo(Variant::INT, "time_us")));
 	ClassDB::bind_method(D_METHOD("load_preset", "id"), &Vst3Instrument::load_preset);
 	ClassDB::bind_method(D_METHOD("get_parameter", "id"), &Vst3Instrument::get_parameter);
 	ClassDB::bind_method(D_METHOD("get_plugin_info"), &Vst3Instrument::get_plugin_info);

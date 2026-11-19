@@ -395,6 +395,20 @@ void EffectRuntime::process_chunk(const float *p_src, float *p_dst, uint32_t p_f
 		std::memcpy(p_dst, p_src, sizeof(float) * CHANNELS * p_frames);
 		return;
 	}
+	// MIDI the plugin sent: stamped with its time, for the main thread (dropped if full).
+	MidiOut sent;
+	while (processor->pop_output_midi(sent)) {
+		const int64_t frame = clock.current_block_start() + int64_t(p_offset) + int64_t(sent.frame);
+		const int64_t from_clock = clock.due_for_frame(frame);
+		int64_t spaced = out_anchor_us + int64_t(std::llround(double(frame - out_anchor_frame) * 1e6 / clock.get_rate()));
+		if (out_anchor_frame < 0 || std::llabs(spaced - from_clock) > MIDI_REANCHOR_US) {
+			out_anchor_frame = frame;
+			out_anchor_us = from_clock;
+			spaced = from_clock;
+		}
+		sent.time_us = spaced;
+		output_midi.push(sent);
+	}
 
 	// 4. Reinterleave into Godot's buffer, and any extra outputs into theirs.
 	for (uint32_t i = 0; i < p_frames; i++) {

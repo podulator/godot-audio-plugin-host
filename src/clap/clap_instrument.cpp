@@ -170,6 +170,7 @@ void ClapInstrument::connect_idle() {
 
 void ClapInstrument::on_process_frame() {
 	const std::vector<gaph::ParamEvent> idle_changes = hosted.idle(); // changes the plugin made itself
+	midi_out.drain(hosted, this);
 	// After idle(), which may have destroyed the instance showing the GUI: tick() reattaches it.
 	for (const gaph::ParamEvent &ev : idle_changes) {
 		emit_signal("parameter_changed", int64_t(ev.param_id), ev.value);
@@ -460,6 +461,12 @@ void ClapInstrument::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_parameter_modulation", "id", "amount", "delay"), &ClapInstrument::set_parameter_modulation, DEFVAL(0.0));
 	ClassDB::bind_method(D_METHOD("get_parameter_modulation", "id"), &ClapInstrument::get_parameter_modulation);
 	ClassDB::bind_method(D_METHOD("get_presets"), &ClapInstrument::get_presets);
+	ClassDB::bind_method(D_METHOD("set_midi_output_driver", "driver"), &ClapInstrument::set_midi_output_driver);
+	ClassDB::bind_method(D_METHOD("get_midi_output_driver"), &ClapInstrument::get_midi_output_driver);
+	ClassDB::bind_method(D_METHOD("set_midi_output_latency_ms", "ms"), &ClapInstrument::set_midi_output_latency_ms);
+	ClassDB::bind_method(D_METHOD("get_midi_output_latency_ms"), &ClapInstrument::get_midi_output_latency_ms);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midi_output_latency_ms", PROPERTY_HINT_RANGE, "0,200,0.5,suffix:ms", PROPERTY_USAGE_NONE), "set_midi_output_latency_ms", "get_midi_output_latency_ms");
+	ADD_SIGNAL(MethodInfo("midi_output", PropertyInfo(Variant::INT, "kind"), PropertyInfo(Variant::INT, "channel"), PropertyInfo(Variant::INT, "index"), PropertyInfo(Variant::INT, "value"), PropertyInfo(Variant::INT, "time_us")));
 	ClassDB::bind_method(D_METHOD("load_preset", "id"), &ClapInstrument::load_preset);
 	ClassDB::bind_method(D_METHOD("get_parameter", "id"), &ClapInstrument::get_parameter);
 	ClassDB::bind_method(D_METHOD("get_plugin_info"), &ClapInstrument::get_plugin_info);

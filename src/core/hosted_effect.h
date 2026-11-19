@@ -169,6 +169,10 @@ public:
 	bool gui_wants_live_instance();
 
 	size_t instance_count() { return registry.size(); }
+	// MAIN THREAD. Every running instance's runtime, with the registry locked: p_fn must not add or
+	// remove effects (collect, then act).
+	template <typename F>
+	void for_each_runtime(F &&p_fn) { registry.for_each(std::forward<F>(p_fn)); }
 	uint64_t frames_processed();
 	// The last transport snapshot of each source (queue_transport).
 	std::map<uint64_t, ParamEvent> transports;

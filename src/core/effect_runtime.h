@@ -66,6 +66,8 @@ public:
 	bool has_processor() const { return processor != nullptr; }
 	// MAIN THREAD only, and only for the calls PluginProcessor marks as main-thread.
 	PluginProcessor *get_processor() { return processor.get(); }
+	// MAIN THREAD. MIDI the plugin sent out, with the host time each is heard at (MidiOut).
+	bool pop_output_midi(MidiOut &r_event) { return output_midi.pop(r_event); }
 
 	// MAIN THREAD, with the audio thread held off (same reason as exchange_processor). Listen to
 	// a sidechain channel, or to none with nullptr.
@@ -133,6 +135,11 @@ private:
 	std::atomic<uint64_t> frames_processed{ 0 };
 	std::unique_ptr<PluginProcessor> processor;
 	RtQueue<ParamEvent> param_queue;
+	RtQueue<MidiOut> output_midi{ 1024 }; // audio thread -> main thread
+	// Times for MIDI out: from one anchor (frame, time), spaced exactly by the sample rate, renewed
+	// only when the clock moves away from it by more than MIDI_REANCHOR_US (the clock's own anchor
+	// creeps a microsecond a block, which would shift the spacing).
+	int64_t out_anchor_frame = -1, out_anchor_us = 0;
 	BlockClock clock;
 	// This Godot block's events, sorted by frame_offset (relative to the block); sized once.
 	std::vector<ParamEvent> events;

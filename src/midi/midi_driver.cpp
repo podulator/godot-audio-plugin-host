@@ -291,6 +291,23 @@ void MidiDriver::live_post(Kind p_kind, int p_channel, int p_index, uint32_t p_v
 	seq.post(Event{ p_kind, uint8_t(p_channel), uint16_t(p_index), p_value, -1 }, Transport::NOW, std::max(get_time_us(), p_due_us));
 }
 
+void MidiDriver::receive_midi(int p_kind, int p_channel, int p_index, int64_t p_value, int64_t p_due_us) {
+	ERR_FAIL_COND(p_channel < 1 || p_channel > 16 || p_index < 0 || p_index > 127 || p_kind < 0 || p_kind > int(Kind::PROGRAM));
+	const Kind kind = Kind(p_kind);
+	const int key = p_channel * 128 + p_index;
+	if (kind == Kind::NOTE_ON) {
+		received_notes[key].push_back(live_note_on(p_channel, p_index, uint32_t(p_value), p_due_us));
+	} else if (kind == Kind::NOTE_OFF) {
+		auto it = received_notes.find(key);
+		if (it != received_notes.end() && !it->second.empty()) {
+			live_note_off(it->second.front(), p_due_us);
+			it->second.erase(it->second.begin());
+		}
+	} else {
+		live_post(kind, p_channel, p_index, uint32_t(p_value), p_due_us);
+	}
+}
+
 // --- Clips ---------------------------------------------------------------------------------------
 
 // On the song's timeline: it follows seek and loop as the music does, and its tempo map sets the
@@ -487,6 +504,7 @@ void MidiDriver::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_channel_target", "channel", "target"), &MidiDriver::set_channel_target);
 	ClassDB::bind_method(D_METHOD("get_channel_target", "channel"), &MidiDriver::get_channel_target);
 	ClassDB::bind_method(D_METHOD("add_transport_target", "target"), &MidiDriver::add_transport_target);
+	ClassDB::bind_method(D_METHOD("receive_midi", "kind", "channel", "index", "value", "time_us"), &MidiDriver::receive_midi);
 	ClassDB::bind_method(D_METHOD("remove_transport_target", "target"), &MidiDriver::remove_transport_target);
 
 	ClassDB::bind_method(D_METHOD("note_on", "channel", "key", "velocity", "length", "at"), &MidiDriver::note_on, DEFVAL(0.0), DEFVAL(NOW));

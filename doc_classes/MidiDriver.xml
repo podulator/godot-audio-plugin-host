@@ -236,6 +236,17 @@
 				Selects program (sound) [param program], 0-127.
 			</description>
 		</method>
+		<method name="receive_midi">
+			<return type="void" />
+			<param index="0" name="kind" type="int" />
+			<param index="1" name="channel" type="int" />
+			<param index="2" name="index" type="int" />
+			<param index="3" name="value" type="int" />
+			<param index="4" name="time_us" type="int" />
+			<description>
+				Plays a MIDI message from elsewhere (a plugin's notes out, see [method ClapInstrument.set_midi_output_driver]) on this driver's channel targets: values at MIDI 2.0 resolution, due at [param time_us] (0, or a time already past: as soon as possible). A note-on and its note-off are paired by channel and key; such notes are the driver's own, ended by its stop and panic.
+			</description>
+		</method>
 		<method name="remove_transport_target">
 			<return type="void" />
 			<param index="0" name="target" type="Object" />

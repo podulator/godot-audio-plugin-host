@@ -41,6 +41,7 @@
 // same delay as before, but now evenly spaced.
 
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 
 namespace gaph {
@@ -102,6 +103,13 @@ public:
 		return int64_t(target_s * rate);
 	}
 	int64_t current_block_start() const { return int64_t(block_start); }
+
+	// AUDIO THREAD. The inverse of absolute_frame_for: the due time an event at stream frame
+	// p_frame would have had. For MIDI a plugin sends out: forwarded with this time (plus a fixed
+	// latency), it lands on the matching frame of another runtime.
+	int64_t due_for_frame(int64_t p_frame) const {
+		return anchor_us - delay_us + int64_t(std::llround(double(p_frame) * 1e6 / rate));
+	}
 
 	int64_t get_delay_us() const { return delay_us; }
 

@@ -62,6 +62,12 @@
 				Returns why the plugin could not be loaded, or an empty string if it loaded (or no [member plugin_path] is set).
 			</description>
 		</method>
+		<method name="get_midi_output_driver" qualifiers="const">
+			<return type="Object" />
+			<description>
+				The driver the plugin's MIDI out plays through, or [code]null[/code].
+			</description>
+		</method>
 		<method name="get_parameter">
 			<return type="float" />
 			<param index="0" name="id" type="int" />
@@ -158,6 +164,17 @@
 				A bundle with a [code]Contents/Resources/moduleinfo.json[/code] is read from that file without loading its binary at all ([code]from_moduleinfo[/code] is [code]true[/code]); others are loaded to ask them, so call this from a menu, not every frame.
 			</description>
 		</method>
+		<method name="set_midi_output_driver">
+			<return type="void" />
+			<param index="0" name="driver" type="Object" />
+			<description>
+				Plays the MIDI the plugin sends out (an arpeggiator's or chord generator's notes, see [signal midi_output]) through [param driver], a [MidiDriver]: on its channel targets, as its own notes (its stop and panic end them). [code]null[/code] for none.
+				[codeblock]
+				arp.set_midi_output_driver(second_midi)   # the arp plays the instrument on second_midi's channel 1
+				arp.midi_output_latency_ms = 50.0        # optional: exact spacing
+				[/codeblock]
+			</description>
+		</method>
 		<method name="set_parameter">
 			<return type="void" />
 			<param index="0" name="id" type="int" />
@@ -206,6 +223,9 @@
 		<member name="bpm" type="float" setter="set_bpm" getter="get_bpm">
 			The tempo the plugin hears, for tempo-synced delays, LFOs, gates and arpeggiators: 0 (the default) gives it no tempo, as before. Set by anything (a game, GDSiON, gameplay), no driver needed; the song position runs on from the last [method sync_beat]. To follow a [MidiDriver] exactly instead (play, pause, loops, tempo maps), use [method MidiDriver.add_transport_target]. Saved with the scene.
 		</member>
+		<member name="midi_output_latency_ms" type="float" setter="set_midi_output_latency_ms" getter="get_midi_output_latency_ms">
+			For [method set_midi_output_driver]: 0 (the default) plays each forwarded event as soon as it reaches the main thread, up to an audio buffer and a frame late, unevenly. Above 0, each is due its own time plus this, so the spacing the plugin made is kept exactly; it must then be longer than the audio output buffer plus a frame (often 20-50 ms; the headless test driver needs about 150).
+		</member>
 		<member name="param_values" type="Dictionary" setter="set_param_values" getter="get_param_values">
 			The parameters set by hand, as [code]{id: value}[/code]. Saved with the scene and applied after [member plugin_state] when it loads, so they win if the two disagree. Parameters not listed keep whatever the plugin holds: its default, or what a loaded state set.
 			Not shown in the inspector, which shows one slider per parameter under [b]Parameters[/b] instead.
@@ -234,6 +254,16 @@
 		<signal name="editor_closed">
 			<description>
 				Emitted when the plugin's window closes: by the user, by the plugin, or by [method close_editor].
+			</description>
+		</signal>
+		<signal name="midi_output">
+			<param index="0" name="kind" type="int" />
+			<param index="1" name="channel" type="int" />
+			<param index="2" name="index" type="int" />
+			<param index="3" name="value" type="int" />
+			<param index="4" name="time_us" type="int" />
+			<description>
+				The plugin sent out a MIDI message (an arpeggiator's note, say): [param kind] a [enum MidiDriver.EventKind], [param channel] 1-16, [param index] the key or controller, [param value] at MIDI 2.0 resolution (velocity 16 bits, the rest 32), [param time_us] when it is heard, on [method MidiDriver.get_time_us]'s clock, exact to the sample. Emitted once a frame on the main thread, so up to an audio buffer and a frame after [param time_us]. From the first running instance only, so an effect Godot runs per channel pair does not report each note twice.
 			</description>
 		</signal>
 		<signal name="parameter_changed">

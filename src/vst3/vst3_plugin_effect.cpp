@@ -228,6 +228,7 @@ void Vst3PluginEffect::connect_idle() {
 
 void Vst3PluginEffect::on_process_frame() {
 	const std::vector<gaph::ParamEvent> changes = hosted.idle();
+	midi_out.drain(hosted, this);
 	const std::string err = hosted.take_error();
 	if (!err.empty()) {
 		UtilityFunctions::push_error("Vst3PluginEffect: ", String::utf8(err.c_str()));
@@ -549,6 +550,12 @@ void Vst3PluginEffect::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_parameter_modulation", "id", "amount", "delay"), &Vst3PluginEffect::set_parameter_modulation, DEFVAL(0.0));
 	ClassDB::bind_method(D_METHOD("get_parameter_modulation", "id"), &Vst3PluginEffect::get_parameter_modulation);
 	ClassDB::bind_method(D_METHOD("get_presets"), &Vst3PluginEffect::get_presets);
+	ClassDB::bind_method(D_METHOD("set_midi_output_driver", "driver"), &Vst3PluginEffect::set_midi_output_driver);
+	ClassDB::bind_method(D_METHOD("get_midi_output_driver"), &Vst3PluginEffect::get_midi_output_driver);
+	ClassDB::bind_method(D_METHOD("set_midi_output_latency_ms", "ms"), &Vst3PluginEffect::set_midi_output_latency_ms);
+	ClassDB::bind_method(D_METHOD("get_midi_output_latency_ms"), &Vst3PluginEffect::get_midi_output_latency_ms);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midi_output_latency_ms", PROPERTY_HINT_RANGE, "0,200,0.5,suffix:ms", PROPERTY_USAGE_NONE), "set_midi_output_latency_ms", "get_midi_output_latency_ms");
+	ADD_SIGNAL(MethodInfo("midi_output", PropertyInfo(Variant::INT, "kind"), PropertyInfo(Variant::INT, "channel"), PropertyInfo(Variant::INT, "index"), PropertyInfo(Variant::INT, "value"), PropertyInfo(Variant::INT, "time_us")));
 	ClassDB::bind_method(D_METHOD("load_preset", "id"), &Vst3PluginEffect::load_preset);
 	ClassDB::bind_method(D_METHOD("find_parameter", "name"), &Vst3PluginEffect::find_parameter);
 	ClassDB::bind_method(D_METHOD("get_parameter_text", "id"), &Vst3PluginEffect::get_parameter_text);

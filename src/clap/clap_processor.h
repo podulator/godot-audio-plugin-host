@@ -70,6 +70,8 @@ public:
 	void detach_from_audio() override;
 	void idle() override;
 	bool pop_output_param(ParamEvent &r_event) override;
+	bool pop_output_midi(MidiOut &r_event) override { return output_midi.pop(r_event); }
+	RtQueue<MidiOut> output_midi{ 512 }; // notes and MIDI the plugin sends out (out_events_try_push)
 	bool needs_restart() override { return restart_requested.load(std::memory_order_acquire); }
 	void restart() override;
 

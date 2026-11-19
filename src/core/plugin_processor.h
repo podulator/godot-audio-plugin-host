@@ -109,6 +109,20 @@ struct ParamEvent {
 	double ramp_from = 0.0, ramp_seconds = 0.0; // RAMP only
 };
 
+// MIDI a plugin sends out (an arpeggiator's notes, say), as process() reports it: frame within the
+// block, a gaph::midi::Kind (NOTE_ON, NOTE_OFF, CONTROL ...), channel 1-16, index (key or
+// controller), value at MIDI 2.0 resolution, the plugin's note id or -1. EffectRuntime adds the
+// host time it is heard at (time_us), for the main thread.
+struct MidiOut {
+	uint32_t frame = 0;
+	uint8_t kind = 0;
+	uint8_t channel = 1;
+	uint16_t index = 0;
+	uint32_t value = 0;
+	int32_t note_id = -1;
+	int64_t time_us = 0;
+};
+
 // One block of audio, as handed to a plugin.
 //
 // PLANAR vs INTERLEAVED
@@ -165,6 +179,8 @@ public:
 	// MAIN THREAD. Parameter changes the plugin made itself (its own GUI, say), one at a time.
 	// The parameter is unnamed because the default implementation never uses it.
 	virtual bool pop_output_param(ParamEvent & /*r_event*/) { return false; }
+	// AUDIO THREAD (right after process()). MIDI the plugin sent out during the last block.
+	virtual bool pop_output_midi(MidiOut & /*r_event*/) { return false; }
 
 	// MAIN THREAD. The host just set a parameter (the change is also on its way to process()).
 	// VST3 needs this: its edit controller is a separate object from its processor and keeps its

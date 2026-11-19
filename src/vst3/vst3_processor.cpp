@@ -550,13 +550,38 @@ bool Vst3Processor::process(const AudioBlock &p_block) {
 	data.inputParameterChanges = &input_changes;
 	data.outputParameterChanges = &output_changes;
 	data.inputEvents = event_bus ? &in_events : nullptr;
-	data.outputEvents = nullptr;
+	out_events.clear();
+	data.outputEvents = &out_events; // an arpeggiator's notes, say
 	data.processContext = &context;
 
 	const tresult result = processor->process(data);
 	sample_time += n;
 	if (result != kResultOk) {
 		return false;
+	}
+	// Notes the plugin sent out, for the main thread (MidiOut; values at MIDI 2.0 resolution).
+	for (int32 i = 0; i < out_events.getEventCount(); i++) {
+		Event e{};
+		if (out_events.getEvent(i, e) != kResultOk) {
+			continue;
+		}
+		MidiOut m;
+		m.frame = uint32_t(e.sampleOffset < 0 ? 0 : e.sampleOffset);
+		using gaph::midi::Kind;
+		if (e.type == Event::kNoteOnEvent) {
+			m.kind = uint8_t(Kind::NOTE_ON), m.channel = uint8_t(e.noteOn.channel + 1), m.index = uint16_t(e.noteOn.pitch);
+			m.value = std::max<uint32_t>(uint32_t(std::llround(std::clamp(double(e.noteOn.velocity), 0.0, 1.0) * 65535.0)), 1), m.note_id = e.noteOn.noteId;
+		} else if (e.type == Event::kNoteOffEvent) {
+			m.kind = uint8_t(Kind::NOTE_OFF), m.channel = uint8_t(e.noteOff.channel + 1), m.index = uint16_t(e.noteOff.pitch);
+			m.value = uint32_t(std::llround(std::clamp(double(e.noteOff.velocity), 0.0, 1.0) * 65535.0)), m.note_id = e.noteOff.noteId;
+		} else if (e.type == Event::kPolyPressureEvent) {
+			m.kind = uint8_t(Kind::POLY_PRESSURE), m.channel = uint8_t(e.polyPressure.channel + 1), m.index = uint16_t(e.polyPressure.pitch);
+			m.value = uint32_t(std::llround(std::clamp(double(e.polyPressure.pressure), 0.0, 1.0) * 4294967295.0));
+		} else {
+			continue;
+		}
+		m.channel = uint8_t(std::clamp<int>(m.channel, 1, 16));
+		output_midi.push(m);
 	}
 
 	// Changes the processor made itself (a meter, an auto-gain): keep the last point of each.

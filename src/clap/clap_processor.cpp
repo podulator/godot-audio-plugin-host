@@ -642,7 +642,66 @@ bool ClapProcessor::out_events_try_push(const clap_output_events_t *p_list, cons
 		out.value = ev->value;
 		return p->output_params.push(out);
 	}
-	// Gestures, notes and the rest are accepted and ignored for now.
+	// Notes and MIDI out (an arpeggiator, a chord generator): queued for the main thread.
+	if (p_event->space_id == CLAP_CORE_EVENT_SPACE_ID) {
+		using gaph::midi::Kind;
+		MidiOut m;
+		m.frame = p_event->time;
+		switch (p_event->type) {
+			case CLAP_EVENT_NOTE_ON:
+			case CLAP_EVENT_NOTE_OFF:
+			case CLAP_EVENT_NOTE_CHOKE: {
+				const clap_event_note_t *n = reinterpret_cast<const clap_event_note_t *>(p_event);
+				m.kind = uint8_t(p_event->type == CLAP_EVENT_NOTE_ON ? Kind::NOTE_ON : Kind::NOTE_OFF);
+				m.channel = uint8_t((n->channel < 0 ? 0 : n->channel) + 1);
+				m.index = uint16_t(n->key < 0 ? 0 : n->key);
+				m.value = uint32_t(std::llround(std::clamp(n->velocity, 0.0, 1.0) * 65535.0));
+				m.note_id = n->note_id;
+				return p->output_midi.push(m);
+			}
+			case CLAP_EVENT_MIDI: {
+				const uint8_t *d = reinterpret_cast<const clap_event_midi_t *>(p_event)->data;
+				const uint8_t kind = d[0] & 0xF0;
+				m.channel = uint8_t((d[0] & 0x0F) + 1);
+				m.index = d[1] & 0x7F;
+				switch (kind) {
+					case 0x90: m.kind = uint8_t((d[2] & 0x7F) ? Kind::NOTE_ON : Kind::NOTE_OFF), m.value = gaph::midi::scale_up(d[2] & 0x7F, 7, 16); break;
+					case 0x80: m.kind = uint8_t(Kind::NOTE_OFF), m.value = gaph::midi::scale_up(d[2] & 0x7F, 7, 16); break;
+					case 0xA0: m.kind = uint8_t(Kind::POLY_PRESSURE), m.value = gaph::midi::scale_up(d[2] & 0x7F, 7, 32); break;
+					case 0xB0: m.kind = uint8_t(Kind::CONTROL), m.value = gaph::midi::scale_up(d[2] & 0x7F, 7, 32); break;
+					case 0xC0: m.kind = uint8_t(Kind::PROGRAM), m.index = 0, m.value = d[1] & 0x7F; break;
+					case 0xD0: m.kind = uint8_t(Kind::CHANNEL_PRESSURE), m.index = 0, m.value = gaph::midi::scale_up(d[1] & 0x7F, 7, 32); break;
+					case 0xE0: m.kind = uint8_t(Kind::PITCH_BEND), m.index = 0, m.value = gaph::midi::scale_up(uint32_t(d[1] & 0x7F) | (uint32_t(d[2] & 0x7F) << 7), 14, 32); break;
+					default: return true; // system messages: not passed on
+				}
+				return p->output_midi.push(m);
+			}
+			case CLAP_EVENT_MIDI2: {
+				const uint32_t *w = reinterpret_cast<const clap_event_midi2_t *>(p_event)->data;
+				if ((w[0] >> 28) != 0x4) {
+					return true; // MIDI 2.0 channel voice only
+				}
+				const uint32_t op = (w[0] >> 20) & 0xF;
+				m.channel = uint8_t(((w[0] >> 16) & 0xF) + 1);
+				m.index = uint16_t((w[0] >> 8) & 0x7F);
+				m.value = w[1];
+				switch (op) {
+					case 0x9: m.kind = uint8_t(Kind::NOTE_ON), m.value = std::max<uint32_t>(w[1] >> 16, 1); break;
+					case 0x8: m.kind = uint8_t(Kind::NOTE_OFF), m.value = w[1] >> 16; break;
+					case 0xA: m.kind = uint8_t(Kind::POLY_PRESSURE); break;
+					case 0xB: m.kind = uint8_t(Kind::CONTROL); break;
+					case 0xC: m.kind = uint8_t(Kind::PROGRAM), m.index = 0, m.value = (w[1] >> 24) & 0x7F; break;
+					case 0xD: m.kind = uint8_t(Kind::CHANNEL_PRESSURE), m.index = 0; break;
+					case 0xE: m.kind = uint8_t(Kind::PITCH_BEND), m.index = 0; break;
+					default: return true;
+				}
+				return p->output_midi.push(m);
+			}
+			default:
+				break;
+		}
+	}
+	// Gestures and the rest are accepted and ignored.
 	return true;
 }
 

@@ -97,6 +97,19 @@ The Add Effect menu lists effects only: instruments play as [audio streams](#ins
 
 Setting `plugin_state` from a script loads a preset: it replaces every value set by hand so far.
 
+## Notes out of plugins
+
+Arpeggiators, chord generators and step sequencers send notes rather than (or as well as) sound. Effects and instruments hand them on:
+
+```gdscript
+arp.midi_output.connect(_on_arp_note)            # (kind, channel, key, value, time_us), once a frame
+arp.set_midi_output_driver(other_midi)           # or play them on other_midi's instruments
+arp.midi_output_latency_ms = 50.0                # optional: keep their spacing exact
+```
+
+- CLAP note events and MIDI 1.0/2.0, VST3 note and polyphonic pressure events, each with the time it is heard, exact to the sample.
+- Forwarded notes are the driver's own: its stop and panic end them. For exact spacing, `midi_output_latency_ms` must exceed the audio buffer plus a frame; at 0 each plays as soon as it reaches the main thread.
+
 ## Presets
 
 Effects and instruments list the presets their plugin offers, and load them:

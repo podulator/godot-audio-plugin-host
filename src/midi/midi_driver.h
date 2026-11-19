@@ -27,6 +27,9 @@
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/ref_counted.hpp>
 
+#include <map>
+#include <vector>
+
 namespace godot {
 
 class MidiDriver;
@@ -166,6 +169,9 @@ public:
 	int64_t live_note_on(int p_channel, int p_key, uint32_t p_velocity, int64_t p_due_us);
 	void live_note_off(int64_t p_id, int64_t p_due_us);
 	void live_post(gaph::midi::Kind p_kind, int p_channel, int p_index, uint32_t p_value, int64_t p_due_us);
+	// The same, as a bound method for other extensions (a plugin's notes out, from clap_host or
+	// vst3_host): values at MIDI 2.0 resolution, note-ons and note-offs paired by channel and key.
+	void receive_midi(int p_kind, int p_channel, int p_index, int64_t p_value, int64_t p_due_us);
 
 	// The transport.
 	void play();
@@ -207,6 +213,7 @@ private:
 	bool inside(gaph::midi::Kind p_kind, int64_t p_value, uint32_t &r_inside) const;
 
 	gaph::midi::Sequencer seq{ *this };
+	std::map<int, std::vector<int64_t>> received_notes; // receive_midi: channel * 128 + key -> note ids
 	int version = 1;
 };
 

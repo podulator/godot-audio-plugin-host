@@ -4,6 +4,7 @@
  *   org.godot-audio-plugin-host.test-instrument-midi  takes MIDI 1.0 only
  *   org.godot-audio-plugin-host.test-transport        plays back the host's transport
  *   org.godot-audio-plugin-host.test-drums            three outputs: Main, Kick (key 36), Snare (38)
+ *   org.godot-audio-plugin-host.test-arp              notes out: each note an octave up, and CC 1
  *
  * No oscillator: every sounding note adds a constant, velocity (0..1) x 0.25, to both outputs, and
  * channel volume (CC 7, 0..127) scales the sum, and the CLAP volume note expression (0..4) one note. So a note's start and end show as exact steps in
@@ -44,6 +45,7 @@ typedef struct {
 	bool midi_only;
 	bool transport_only;
 	bool drums; /* three outputs: Main, Kick, Snare */
+	bool arp;   /* sends notes out: each one an octave up, on its own sample, and CC 1 = 64 per note-on */
 	double rate;
 	/* The transport as last told: position `beat` at sample `at` of this block (may be negative
 	 * when carried over from an earlier block), tempo, playing. */
@@ -70,6 +72,11 @@ static const char *const DRUM_FEATURES[] = { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLA
 static const clap_plugin_descriptor_t DESC_DRUMS = {
 	CLAP_VERSION_INIT, "org.godot-audio-plugin-host.test-drums", "GAPH Test Drums", "Godot Audio Plugin Host", "", "", "", "1.0.0",
 	"Three outputs: Main, Kick (key 36), Snare (key 38)", DRUM_FEATURES,
+};
+static const char *const ARP_FEATURES[] = { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_NOTE_EFFECT, NULL };
+static const clap_plugin_descriptor_t DESC_ARP = {
+	CLAP_VERSION_INIT, "org.godot-audio-plugin-host.test-arp", "GAPH Test Arp", "Godot Audio Plugin Host", "", "", "", "1.0.0",
+	"Sends notes out: each note an octave up, on its own sample, and the mod wheel at 64", ARP_FEATURES,
 };
 static const clap_plugin_descriptor_t DESC_MIDI = {
 	CLAP_VERSION_INIT, "org.godot-audio-plugin-host.test-instrument-midi", "GAPH Test Instrument (MIDI)", "Godot Audio Plugin Host", "", "", "", "1.0.0",
@@ -228,6 +235,23 @@ static void p_reset(const clap_plugin_t *p) {
 	self_of(p)->note_count = 0;
 }
 
+/* The arp: an incoming note goes out again an octave higher, on the same sample (note id + 1000),
+ * and a note-on also sends the mod wheel (CC 1 = 64) as MIDI. */
+static void arp_echo(const Instrument *s, const clap_process_t *proc, const clap_event_header_t *h) {
+	if (!s->arp || h->space_id != CLAP_CORE_EVENT_SPACE_ID || (h->type != CLAP_EVENT_NOTE_ON && h->type != CLAP_EVENT_NOTE_OFF)) {
+		return;
+	}
+	clap_event_note_t out = *(const clap_event_note_t *)h;
+	out.key = (int16_t)(out.key + 12);
+	out.note_id = out.note_id >= 0 ? out.note_id + 1000 : -1;
+	proc->out_events->try_push(proc->out_events, &out.header);
+	if (h->type == CLAP_EVENT_NOTE_ON) {
+		clap_event_midi_t cc = { { sizeof(clap_event_midi_t), h->time, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI, 0 }, 0,
+			{ (uint8_t)(0xB0 | (out.channel & 15)), 1, 64 } };
+		proc->out_events->try_push(proc->out_events, &cc.header);
+	}
+}
+
 static clap_process_status p_process(const clap_plugin_t *p, const clap_process_t *proc) {
 	Instrument *s = self_of(p);
 	const uint32_t frames = proc->frames_count;
@@ -248,6 +272,7 @@ static clap_process_status p_process(const clap_plugin_t *p, const clap_process_
 			if (h->time > f) {
 				break;
 			}
+			arp_echo(s, proc, h);
 			handle_event(s, h);
 			next++;
 		}
@@ -268,7 +293,9 @@ static clap_process_status p_process(const clap_plugin_t *p, const clap_process_
 	}
 	s->at -= (int64_t)frames; /* the same moment, counted from the next block's first sample */
 	while (next < count) { /* any beyond the block's end (a host should not send them) */
-		handle_event(s, proc->in_events->get(proc->in_events, next++));
+		const clap_event_header_t *late = proc->in_events->get(proc->in_events, next++);
+		arp_echo(s, proc, late);
+		handle_event(s, late);
 	}
 	/* With no note sounding there is nothing to do until an event comes: the host may stop
 	 * calling (the transport plugin keeps going: its output is the position). */
@@ -448,12 +475,12 @@ static void p_on_main_thread(const clap_plugin_t *p) {
 
 static uint32_t factory_count(const clap_plugin_factory_t *f) {
 	(void)f;
-	return 4;
+	return 5;
 }
 
 static const clap_plugin_descriptor_t *factory_descriptor(const clap_plugin_factory_t *f, uint32_t index) {
 	(void)f;
-	return index == 0 ? &DESC_CLAP : (index == 1 ? &DESC_MIDI : (index == 2 ? &DESC_TRANSPORT : (index == 3 ? &DESC_DRUMS : NULL)));
+	return index == 0 ? &DESC_CLAP : (index == 1 ? &DESC_MIDI : (index == 2 ? &DESC_TRANSPORT : (index == 3 ? &DESC_DRUMS : (index == 4 ? &DESC_ARP : NULL))));
 }
 
 static const clap_plugin_t *factory_create(const clap_plugin_factory_t *f, const clap_host_t *host, const char *id) {
@@ -461,7 +488,8 @@ static const clap_plugin_t *factory_create(const clap_plugin_factory_t *f, const
 	const bool midi_only = !strcmp(id, DESC_MIDI.id);
 	const bool transport_only = !strcmp(id, DESC_TRANSPORT.id);
 	const bool drums = !strcmp(id, DESC_DRUMS.id);
-	if (!midi_only && !transport_only && !drums && strcmp(id, DESC_CLAP.id)) {
+	const bool arp = !strcmp(id, DESC_ARP.id);
+	if (!midi_only && !transport_only && !drums && !arp && strcmp(id, DESC_CLAP.id)) {
 		return NULL;
 	}
 	Instrument *s = (Instrument *)calloc(1, sizeof(Instrument));
@@ -472,8 +500,9 @@ static const clap_plugin_t *factory_create(const clap_plugin_factory_t *f, const
 	s->midi_only = midi_only;
 	s->transport_only = transport_only;
 	s->drums = drums;
+	s->arp = arp;
 	s->rate = 44100.0;
-	s->plugin.desc = midi_only ? &DESC_MIDI : (transport_only ? &DESC_TRANSPORT : (drums ? &DESC_DRUMS : &DESC_CLAP));
+	s->plugin.desc = midi_only ? &DESC_MIDI : (transport_only ? &DESC_TRANSPORT : (drums ? &DESC_DRUMS : (arp ? &DESC_ARP : &DESC_CLAP)));
 	s->plugin.plugin_data = s;
 	s->plugin.init = p_init;
 	s->plugin.destroy = p_destroy;

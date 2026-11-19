@@ -229,6 +229,7 @@ void ClapPluginEffect::connect_idle() {
 
 void ClapPluginEffect::on_process_frame() {
 	const std::vector<gaph::ParamEvent> changes = hosted.idle();
+	midi_out.drain(hosted, this);
 	const std::string err = hosted.take_error();
 	if (!err.empty()) {
 		UtilityFunctions::push_error("ClapPluginEffect: ", String::utf8(err.c_str()));
@@ -542,6 +543,12 @@ void ClapPluginEffect::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_parameter_modulation", "id", "amount", "delay"), &ClapPluginEffect::set_parameter_modulation, DEFVAL(0.0));
 	ClassDB::bind_method(D_METHOD("get_parameter_modulation", "id"), &ClapPluginEffect::get_parameter_modulation);
 	ClassDB::bind_method(D_METHOD("get_presets"), &ClapPluginEffect::get_presets);
+	ClassDB::bind_method(D_METHOD("set_midi_output_driver", "driver"), &ClapPluginEffect::set_midi_output_driver);
+	ClassDB::bind_method(D_METHOD("get_midi_output_driver"), &ClapPluginEffect::get_midi_output_driver);
+	ClassDB::bind_method(D_METHOD("set_midi_output_latency_ms", "ms"), &ClapPluginEffect::set_midi_output_latency_ms);
+	ClassDB::bind_method(D_METHOD("get_midi_output_latency_ms"), &ClapPluginEffect::get_midi_output_latency_ms);
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "midi_output_latency_ms", PROPERTY_HINT_RANGE, "0,200,0.5,suffix:ms", PROPERTY_USAGE_NONE), "set_midi_output_latency_ms", "get_midi_output_latency_ms");
+	ADD_SIGNAL(MethodInfo("midi_output", PropertyInfo(Variant::INT, "kind"), PropertyInfo(Variant::INT, "channel"), PropertyInfo(Variant::INT, "index"), PropertyInfo(Variant::INT, "value"), PropertyInfo(Variant::INT, "time_us")));
 	ClassDB::bind_method(D_METHOD("load_preset", "id"), &ClapPluginEffect::load_preset);
 	ClassDB::bind_method(D_METHOD("find_parameter", "name"), &ClapPluginEffect::find_parameter);
 	ClassDB::bind_method(D_METHOD("get_parameter_text", "id"), &ClapPluginEffect::get_parameter_text);

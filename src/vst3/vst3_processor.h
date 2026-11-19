@@ -206,6 +206,13 @@ private:
 	bool instrument = false;
 	bool event_bus = false; // the plugin has an event input bus, now switched on
 	Steinberg::Vst::EventList in_events{ 512 };
+	Steinberg::Vst::EventList out_events{ 512 };
+	RtQueue<MidiOut> output_midi{ 512 };
+
+public:
+	bool pop_output_midi(MidiOut &r_event) override { return output_midi.pop(r_event); }
+
+private:
 	static constexpr int MIDI_MAP_SIZE = 131;
 	Steinberg::Vst::ParamID midi_map[16][MIDI_MAP_SIZE];
 	Steinberg::int32 program_steps[16] = {}; // the program parameter's step count, per channel

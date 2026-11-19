@@ -15,6 +15,7 @@
 // These two names are CLAP-specific on purpose: the VST3 extension has its own pair. Two
 // extensions registering the same class name is a hard load failure in Godot.
 
+#include "godot_common/midi_out_tap.h"
 #include "clap_processor.h"
 #include "core/effect_runtime.h"
 #include "core/hosted_effect.h"
@@ -92,6 +93,13 @@ public:
 	double get_parameter_modulation(int64_t p_id);
 	// Presets (PluginProcessor::list_presets): [{id, name, collection, creator, description, tags}].
 	TypedArray<Dictionary> get_presets();
+
+	// MIDI the plugin sends out (godot_common/midi_out_tap.h): the midi_output signal, and played
+	// through a MidiDriver if one is set.
+	void set_midi_output_driver(Object *p_driver) { midi_out.set_driver(p_driver); }
+	Object *get_midi_output_driver() const { return midi_out.get_driver(); }
+	void set_midi_output_latency_ms(double p_ms) { midi_out.set_latency_ms(p_ms); }
+	double get_midi_output_latency_ms() const { return midi_out.get_latency_ms(); }
 	bool load_preset(const String &p_id);
 
 	// Tempo for tempo-synced effects (godot_common/effect_tempo.h): a plain bpm, or a MidiDriver's
@@ -146,6 +154,7 @@ private:
 	// Kept so the editor can show "Size: 24.0 m" text without a bus running.
 	std::unique_ptr<gaph::ClapProcessor> probe;
 	gaph::HostedEffect hosted;
+	gaph_godot::MidiOutTap midi_out;
 	gaph_godot::EffectTempo tempo;
 	gaph_godot::EditorWindow editor_window;
 };

@@ -10,6 +10,7 @@ const CLAP_ID := "org.godot-audio-plugin-host.test-instrument"
 const MIDI_ID := "org.godot-audio-plugin-host.test-instrument-midi"
 const TRANSPORT_ID := "org.godot-audio-plugin-host.test-transport"
 const DRUMS_ID := "org.godot-audio-plugin-host.test-drums"
+const BEAT_US := 500000 # 120 bpm
 
 var failures := 0
 var rate := 44100.0
@@ -40,6 +41,7 @@ func _ready() -> void:
 		await _test_effect_tempo()
 		await _test_ramps_and_modulation(path)
 		await _test_presets(path)
+		await _test_notes_out(path)
 	var vst3_notes := TestUtilScript.own_plugin("gaph_test_vst3_instrument.vst3")
 	var vst3_transport := TestUtilScript.own_plugin("gaph_test_vst3_transport.vst3")
 	if not DirAccess.dir_exists_absolute(vst3_notes) or not DirAccess.dir_exists_absolute(vst3_transport):
@@ -760,3 +762,42 @@ func _test_vst3_presets(path: String) -> void:
 	midi.panic()
 	await _unrig(r)
 	OS.set_environment("GAPH_VST3_PRESET_PATH", "")
+
+
+# Notes out of a plugin: the test arp sends each note an octave up on its own sample, and CC 1 = 64
+# per note-on. Two notes a beat apart: midi_output gives both, their times a beat apart (to a
+# sample). Forwarded to a second driver, they play another instrument: in its sound, exactly a
+# beat (rate / 2 samples) apart, an octave up arriving as notes there.
+func _test_notes_out(path: String) -> void:
+	var a := await _rig(path, "org.godot-audio-plugin-host.test-arp", "Inst_Arp")
+	var arp: ClapInstrument = a.inst
+	var got := []
+	arp.midi_output.connect(func(kind: int, channel: int, index: int, value: int, t: int) -> void: got.append([kind, channel, index, value, t]))
+	var b := await _rig(path, CLAP_ID, "Inst_Arp_Target")
+	var far: MidiDriver = b.midi
+	far.set_channel_target(1, b.inst)
+	arp.set_midi_output_driver(far)
+	# More than the trip: the audio buffer (the headless driver mixes in bursts of up to ~100 ms),
+	# a frame, and the far block.
+	arp.midi_output_latency_ms = 150.0
+	var near: MidiDriver = a.midi
+	near.set_channel_target(1, arp)
+	near.play()
+	await get_tree().create_timer(0.1).timeout
+	b.cap.clear_buffer()
+	var at := near.after(0.5)
+	near.note_on(1, 60, 127, 0.5, at)
+	near.note_on(1, 62, 127, 0.5, at + 1.0)
+	var steps := _steps(await _collect(b.cap, 1.6))
+	var ons := got.filter(func(e): return e[0] == MidiDriver.EVENT_NOTE_ON)
+	var ccs := got.filter(func(e): return e[0] == MidiDriver.EVENT_CONTROL and e[2] == 1)
+	_check(ons.size() == 2 and ons[0][2] == 72 and ons[1][2] == 74 and ccs.size() == 2, "midi_output: the arp's notes an octave up, and its mod wheel (%s)" % [got.slice(0, 4)])
+	var spacing: int = ons[1][4] - ons[0][4] if ons.size() == 2 else 0
+	_check(absi(spacing - BEAT_US) <= 25, "... their times a beat apart, to a sample (%d us)" % spacing)
+	var starts := []
+	for i in steps.size():
+		if steps[i][1] > 0.1 and (i == 0 or steps[i - 1][1] == 0.0):
+			starts.append(steps[i][0])
+	_check(starts.size() == 2 and starts[1] - starts[0] == int(rate / 2.0), "forwarded through a driver, they play another instrument exactly a beat apart (%s)" % str(starts))
+	await _unrig(a)
+	await _unrig(b)

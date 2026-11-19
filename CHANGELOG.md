@@ -2,6 +2,7 @@
 
 ## In development
 
+- **Notes out of plugins:** MIDI an effect or instrument's plugin sends (an arpeggiator's notes) comes out as the `midi_output` signal, timed to the sample, and plays through a `MidiDriver` with `set_midi_output_driver()`, optionally at a fixed latency for exact spacing (`MidiDriver.receive_midi()`).
 - **Presets:** `get_presets()` and `load_preset()` on effects and instruments: CLAP preset discovery (built-in presets and preset files, loaded with `preset-load`), VST3 program lists and `.vstpreset` files. A preset loads into every instance and becomes the saved state.
 - **Sound that follows gameplay:** `set_parameter_ramp()` glides a parameter sample-exactly; `set_parameter_modulation()` moves one without touching its saved value (natively where a CLAP plugin allows it, emulated otherwise); effects take a tempo, as a plain `bpm` (with `sync_beat()` for phase) or from a `MidiDriver` (`add_transport_target()`). Instruments gained `set_parameter_at()`. A transport now also reaches an effect or instrument whose audio starts after it was sent.
 - **Per-note expressions:** `MidiNote.tune()`, `volume()`, `pan()`, `vibrato()`, `expression()`, `brightness()` and `pressure()` change one note, not its channel: natively for CLAP note expressions and VST3 Note Expression, through MPE on a `MidiOutput` (`mpe`), and otherwise as pressure (polyphonic aftertouch) and channel messages only while the note is alone on its channel.
