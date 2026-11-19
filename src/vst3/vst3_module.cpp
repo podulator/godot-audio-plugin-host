@@ -1,5 +1,7 @@
 #include "vst3_module.h"
 
+#include "core/crash_guard.h"
+
 #include "public.sdk/source/vst/hosting/hostclasses.h"
 #include "public.sdk/source/vst/moduleinfo/moduleinfoparser.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
@@ -26,6 +28,12 @@ VST3::Hosting::Module::Ptr vst3_open_module(const std::string &p_path, std::stri
 	if (auto existing = cache[key].lock()) {
 		return existing;
 	}
+	if (gaph::CrashGuard::is_marked(key)) {
+		r_error = "it crashed the program before, so it is not loaded again until it is updated, or the mark is cleared "
+				"(Vst3PluginEffect.clear_crashed_plugin(), or " + gaph::CrashGuard::state_file() + ")";
+		return nullptr;
+	}
+	gaph::CrashGuard::Scope inside(key.c_str()); // loading and ModuleEntry run its code
 	VST3::Hosting::Module::Ptr module = VST3::Hosting::Module::create(key, r_error);
 	if (module) {
 		cache[key] = module;

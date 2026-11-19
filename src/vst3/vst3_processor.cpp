@@ -1,5 +1,7 @@
 #include "vst3_processor.h"
 
+#include "core/crash_guard.h"
+
 #include "core/midi_expression.h"
 #include "pluginterfaces/vst/ivstnoteexpression.h"
 #include "core/native_window.h"
@@ -31,6 +33,8 @@ std::unique_ptr<Vst3Processor> Vst3Processor::create(VST3::Hosting::Module::Ptr 
 	}
 	std::unique_ptr<Vst3Processor> p(new Vst3Processor());
 	p->module = std::move(p_module);
+	p->module_path = p->module->getPath();
+	CrashGuard::Scope inside(p->module_path.c_str()); // creating it runs its code
 	p->sample_rate = p_sample_rate;
 	p->max_frames = p_max_frames;
 	p->handler.owner = p.get();
@@ -133,6 +137,7 @@ void Vst3Processor::sync_controller_state() {
 }
 
 Vst3Processor::~Vst3Processor() {
+	CrashGuard::Scope inside(module_path.c_str());
 	// The reverse of create(), the same order the SDK's PlugProvider uses, GUI first.
 	gui_close();
 	stop();
@@ -468,6 +473,7 @@ tresult PLUGIN_API Vst3Processor::ComponentHandler::performEdit(ParamID p_id, Pa
 
 // AUDIO THREAD. Same rules as ClapProcessor::process(): nothing here allocates.
 bool Vst3Processor::process(const AudioBlock &p_block) {
+	CrashGuard::Scope inside(module_path.c_str());
 	if (!active || main_output < 0 || p_block.frames > max_frames) {
 		return false;
 	}
@@ -726,6 +732,7 @@ static bool get_u64(const std::vector<uint8_t> &p_in, size_t &r_pos, uint64_t &r
 }
 
 bool Vst3Processor::save_state(std::vector<uint8_t> &r_data) {
+	CrashGuard::Scope inside(module_path.c_str());
 	// Known gap: on an instance that never runs (the probe), parameter changes reach only the
 	// controller (on_param_set), not the component, so the component half of a state saved from
 	// it misses them. Saved scenes still come back right, because the values set by hand are
@@ -747,6 +754,7 @@ bool Vst3Processor::save_state(std::vector<uint8_t> &r_data) {
 }
 
 bool Vst3Processor::load_state(const std::vector<uint8_t> &p_data) {
+	CrashGuard::Scope inside(module_path.c_str());
 	if (p_data.size() < 8 || std::memcmp(p_data.data(), STATE_MAGIC, 8) != 0) {
 		return false;
 	}
@@ -855,6 +863,7 @@ bool Vst3Processor::gui_available() {
 }
 
 bool Vst3Processor::gui_open(uint64_t p_parent, double p_scale, uint32_t &r_width, uint32_t &r_height, std::string &r_error) {
+	CrashGuard::Scope inside(module_path.c_str());
 	if (view) {
 		return true;
 	}

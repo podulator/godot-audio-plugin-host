@@ -371,7 +371,7 @@ xattr -dr com.apple.quarantine addons/clap_host addons/vst3_host addons/midi_hos
 - `%APPDATA%` on Windows,
 - `~/Library/Application Support` on macOS.
 
-**A plugin crashed the editor.** Plugins are loaded in the editor's own process, so a plugin that crashes takes the editor with it. The host notes each plugin before loading it, so at the next start it knows which one it was: that plugin is skipped, with a warning, and every other plugin is scanned as usual. It is tried again once its file changes, after an update or a reinstall, or when its line is deleted from `clap_scan.cfg` or `vst3_scan.cfg` in the same folder as the logs.
+**A plugin crashed the editor or the game.** Plugins run in Godot's own process, so a plugin that crashes takes it with it. The host notes which plugin's code was running when it happened, and from the next start that plugin is not loaded again: its load error says so, and `ClapPluginEffect.get_crashed_plugins()` lists it. It is tried again once its file changes (an update), or after `clear_crashed_plugin()` (or deleting its line from `crashed_plugins.txt` in `godot/godot-audio-plugin-host/` in your user configuration folder). A crash in Godot's own code marks no plugin. The editor's scan has its own guard as well: a plugin that crashed the scan is skipped there.
 
 **An effect passes audio through unchanged.** Its plugin was not found or did not load: `is_plugin_loaded()` is false and `get_load_error()` says why. A scene from another machine finds its plugins by name, in this machine's plugin folders.
 

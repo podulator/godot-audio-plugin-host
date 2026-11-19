@@ -601,6 +601,8 @@ void Vst3PluginEffect::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("midi_stop", "time_us", "source", "mode"), &Vst3PluginEffect::midi_stop);
 	// Static: called on the class, Vst3PluginEffect.scan_plugins(), without an object.
 	ClassDB::bind_static_method("Vst3PluginEffect", D_METHOD("scan_plugins", "extra_dirs"), &Vst3PluginEffect::scan_plugins, DEFVAL(PackedStringArray()));
+	ClassDB::bind_static_method("Vst3PluginEffect", D_METHOD("get_crashed_plugins"), &Vst3PluginEffect::get_crashed_plugins);
+	ClassDB::bind_static_method("Vst3PluginEffect", D_METHOD("clear_crashed_plugin", "path"), &Vst3PluginEffect::clear_crashed_plugin, DEFVAL(String()));
 
 	// A .vst3 is a folder (a bundle), so the picker is a folder picker, not a file picker.
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "plugin_path", PROPERTY_HINT_GLOBAL_DIR, ""), "set_plugin_path", "get_plugin_path");

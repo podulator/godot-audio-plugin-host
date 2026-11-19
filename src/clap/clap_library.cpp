@@ -1,5 +1,7 @@
 #include "clap_library.h"
 
+#include "core/crash_guard.h"
+
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
@@ -66,6 +68,11 @@ std::shared_ptr<ClapLibrary> ClapLibrary::open(const std::string &p_path, std::s
 	if (auto existing = cache[key].lock()) {
 		return existing;
 	}
+	if (CrashGuard::is_marked(key)) {
+		r_error = "it crashed the program before, so it is not loaded again until it is updated, or the mark is cleared "
+				"(ClapPluginEffect.clear_crashed_plugin(), or " + CrashGuard::state_file() + ")";
+		return nullptr;
+	}
 
 #ifdef __ANDROID__
 	if (!enough_thread_keys()) {
@@ -90,6 +97,7 @@ std::shared_ptr<ClapLibrary> ClapLibrary::open(const std::string &p_path, std::s
 	// runs and cleans up whatever was set up so far.
 	std::shared_ptr<ClapLibrary> l(new ClapLibrary());
 	l->path = key;
+	CrashGuard::Scope inside(l->path.c_str()); // the load, init and descriptors run the plugin's code
 	if (!l->lib.open(binary, r_error)) {
 		return nullptr;
 	}
@@ -135,6 +143,7 @@ std::shared_ptr<ClapLibrary> ClapLibrary::open(const std::string &p_path, std::s
 ClapLibrary::~ClapLibrary() {
 	// Order matters: deinit() while the code is still loaded, then the DynLib member's own
 	// destructor unloads the binary. Members are destroyed after the destructor body runs.
+	CrashGuard::Scope inside(path.c_str()); // deinit and unloading run the plugin's code too
 	if (initialized && entry) {
 		entry->deinit();
 	}

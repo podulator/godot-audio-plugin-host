@@ -1,5 +1,6 @@
 #include "clap_processor.h"
 #include "clap_presets.h"
+#include "core/crash_guard.h"
 
 #include "core/midi_expression.h"
 #include "core/native_window.h"
@@ -57,6 +58,7 @@ std::unique_ptr<ClapProcessor> ClapProcessor::create(std::shared_ptr<ClapLibrary
 		return nullptr;
 	}
 
+	CrashGuard::Scope inside(p_library->get_path().c_str()); // creating it runs its code
 	std::unique_ptr<ClapProcessor> p(new ClapProcessor());
 	p->library = std::move(p_library);
 	p->main_thread = std::this_thread::get_id();
@@ -124,6 +126,7 @@ std::unique_ptr<ClapProcessor> ClapProcessor::create(std::shared_ptr<ClapLibrary
 }
 
 ClapProcessor::~ClapProcessor() {
+	CrashGuard::Scope inside(library ? library->get_path().c_str() : nullptr);
 	if (!plugin) {
 		return;
 	}
@@ -189,6 +192,7 @@ void ClapProcessor::setup_ports(bool p_input, std::vector<Port> &r_ports, std::v
 }
 
 bool ClapProcessor::activate(std::string &r_error) {
+	CrashGuard::Scope inside(library ? library->get_path().c_str() : nullptr);
 	if (active) {
 		return true;
 	}
@@ -241,6 +245,7 @@ void ClapProcessor::restart() {
 }
 
 void ClapProcessor::idle() {
+	CrashGuard::Scope inside(library ? library->get_path().c_str() : nullptr);
 	// request_callback() may be called from any thread; on_main_thread() must run on the main
 	// thread. The atomic flag is the hand-off between them. exchange(false) reads the flag and
 	// clears it in one indivisible step, so a request arriving at the same moment is not lost.
@@ -266,6 +271,7 @@ bool ClapProcessor::pop_output_param(ParamEvent &r_event) {
 // AUDIO THREAD. The real-time rules apply to everything from here to the end of the function:
 // every buffer used below was allocated in create() or setup_ports().
 bool ClapProcessor::process(const AudioBlock &p_block) {
+	CrashGuard::Scope inside(library ? library->get_path().c_str() : nullptr);
 	t_audio_thread = true;
 	if (!active || main_output < 0 || p_block.frames > max_frames) {
 		return false;
@@ -774,6 +780,7 @@ struct ReadCursor {
 } // namespace
 
 bool ClapProcessor::save_state(std::vector<uint8_t> &r_data) {
+	CrashGuard::Scope inside(library ? library->get_path().c_str() : nullptr);
 	if (!ext_state) {
 		return false;
 	}
@@ -792,6 +799,7 @@ bool ClapProcessor::save_state(std::vector<uint8_t> &r_data) {
 }
 
 bool ClapProcessor::load_state(const std::vector<uint8_t> &p_data) {
+	CrashGuard::Scope inside(library ? library->get_path().c_str() : nullptr);
 	if (!ext_state) {
 		return false;
 	}
@@ -1031,6 +1039,7 @@ bool ClapProcessor::gui_available() {
 }
 
 bool ClapProcessor::gui_open(uint64_t p_parent, double p_scale, uint32_t &r_width, uint32_t &r_height, std::string &r_error) {
+	CrashGuard::Scope inside(library ? library->get_path().c_str() : nullptr);
 	if (gui_created) {
 		return true;
 	}

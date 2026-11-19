@@ -3,6 +3,7 @@
 #include "clap_instrument.h"
 #include "clap_plugin_effect.h"
 #include "clap_sidechain_send.h"
+#include "godot_common/crash_marks.h"
 #include "godot_common/menu_classes.h"
 #include "godot_common/param_properties.h"
 #include "godot_common/plugin_paths.h"
@@ -135,6 +136,7 @@ static void initialize_clap_host(ModuleInitializationLevel p_level) {
 		return;
 	}
 	gaph_godot::register_path_settings("clap");
+	gaph_godot::install_crash_guard(); // a plugin that crashes the program is not loaded again (core/crash_guard.h)
 	// VIRTUAL, so the bus panel's Add Effect menu leaves the generic entry out (it skips
 	// ClassDB::is_virtual classes) while the per-plugin entries stand in for it. A virtual
 	// extension class keeps its create function: .new(), saved scenes and the menu entries all

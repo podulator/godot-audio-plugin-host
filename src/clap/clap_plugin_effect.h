@@ -20,6 +20,7 @@
 #include "clap_processor.h"
 #include "core/effect_runtime.h"
 #include "core/hosted_effect.h"
+#include "godot_common/crash_marks.h"
 #include "godot_common/effect_tempo.h"
 #include "godot_common/editor_window.h"
 
@@ -135,6 +136,9 @@ public:
 	int get_spare_instances() const;
 	int64_t get_frames_processed();
 	static TypedArray<Dictionary> scan_plugins(const PackedStringArray &p_extra_dirs);
+	// Plugins that crashed the program, and are refused until updated or cleared (core/crash_guard.h).
+	static PackedStringArray get_crashed_plugins() { return gaph_godot::crashed_plugins(); }
+	static void clear_crashed_plugin(const String &p_path) { gaph_godot::clear_crashed_plugin(p_path); }
 	// The scan behind scan_plugins() (every plugin) and ClapInstrument::scan_plugins()
 	// (p_instruments_only: those with the "instrument" feature).
 	static TypedArray<Dictionary> scan(const PackedStringArray &p_extra_dirs, bool p_instruments_only);

@@ -2,6 +2,7 @@
 
 ## In development
 
+- **Crash protection:** a plugin that crashes the editor or a game while its code runs is marked, and refused at the next start with a load error saying why, until its file changes or `clear_crashed_plugin()`. A crash in Godot's own code marks nothing.
 - **Plugin windows in games:** `open_editor()` now opens the plugin's own interface in a running game too, exported ones included (Linux, Windows, macOS), scaled to the screen's scale. Tested in a game under Xvfb with a real plugin's GUI.
 - **MIDI learn:** `learn_parameter()` maps the next controller moved to a parameter (`map_controller()` by hand); a `MidiInput` feeds its learners (`add_learner()`), each controller moving its parameter over the whole range as a short glide. Mappings save with the scene (`midi_map`).
 - **Notes out of plugins:** MIDI an effect or instrument's plugin sends (an arpeggiator's notes) comes out as the `midi_output` signal, timed to the sample, and plays through a `MidiDriver` with `set_midi_output_driver()`, optionally at a fixed latency for exact spacing (`MidiDriver.receive_midi()`).

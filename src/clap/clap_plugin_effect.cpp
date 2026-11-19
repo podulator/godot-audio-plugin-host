@@ -594,6 +594,8 @@ void ClapPluginEffect::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("midi_stop", "time_us", "source", "mode"), &ClapPluginEffect::midi_stop);
 	// Static: called on the class, ClapPluginEffect.scan_plugins(), without an object.
 	ClassDB::bind_static_method("ClapPluginEffect", D_METHOD("scan_plugins", "extra_dirs"), &ClapPluginEffect::scan_plugins, DEFVAL(PackedStringArray()));
+	ClassDB::bind_static_method("ClapPluginEffect", D_METHOD("get_crashed_plugins"), &ClapPluginEffect::get_crashed_plugins);
+	ClassDB::bind_static_method("ClapPluginEffect", D_METHOD("clear_crashed_plugin", "path"), &ClapPluginEffect::clear_crashed_plugin, DEFVAL(String()));
 
 	// PROPERTY_HINT_GLOBAL_FILE gives a file picker for paths outside the project, filtered to
 	// .clap files.

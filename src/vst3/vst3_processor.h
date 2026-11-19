@@ -30,6 +30,7 @@
 
 #include "core/midi_target.h"
 #include "core/plugin_processor.h"
+#include "core/crash_guard.h"
 #include "core/rt_queue.h"
 #include "core/run_loop.h"
 #include "vst3_module.h"
@@ -82,7 +83,10 @@ public:
 	bool save_state(std::vector<uint8_t> &r_data) override;
 	bool load_state(const std::vector<uint8_t> &p_data) override;
 	bool get_param_value(uint32_t p_id, double &r_value) const override;
-	void idle() override { run_loop.pump(); }
+	void idle() override {
+		CrashGuard::Scope inside(module_path.c_str()); // its timers and file callbacks run its code
+		run_loop.pump();
+	}
 
 	// GUI: the controller's IPlugView ("editor"), attached to the platform's window (an X11 id,
 	// an HWND or an NSView*: core/native_window.h). See plugin_processor.h.
@@ -154,6 +158,7 @@ private:
 
 	VST3::Hosting::Module::Ptr module; // First, so it is destroyed last: see clap_processor.h.
 	VST3::Hosting::ClassInfo class_info;
+	std::string module_path; // for CrashGuard (core/crash_guard.h): which plugin a crash was in
 	Steinberg::IPtr<Steinberg::Vst::IComponent> component;
 	Steinberg::IPtr<Steinberg::Vst::IAudioProcessor> processor;
 	Steinberg::IPtr<Steinberg::Vst::IEditController> controller;

@@ -30,6 +30,13 @@
 				Stops waiting for a controller to learn.
 			</description>
 		</method>
+		<method name="clear_crashed_plugin" qualifiers="static">
+			<return type="void" />
+			<param index="0" name="path" type="String" default="&quot;&quot;" />
+			<description>
+				Lets the plugin at [param path] load again after a crash ([method get_crashed_plugins]); with no [param path], every one.
+			</description>
+		</method>
 		<method name="clear_midi_map">
 			<return type="void" />
 			<description>
@@ -53,6 +60,12 @@
 			<return type="int" />
 			<description>
 				Returns how many of this effect's instances are running the plugin. Godot creates one instance per stereo channel pair of each bus the effect is on (see [method get_instance_count]). A new instance can pass audio through for a frame or two while its plugin is being created, unless a spare was ready (see [member spare_instances]).
+			</description>
+		</method>
+		<method name="get_crashed_plugins" qualifiers="static">
+			<return type="PackedStringArray" />
+			<description>
+				The plugins that crashed the program (the editor or a game) while their own code was running: their paths. Such a plugin is not loaded again (its [method get_load_error] says why) until its file changes (an update), or [method clear_crashed_plugin]. One list for CLAP and VST3, kept in Godot's per-user config folder.
 			</description>
 		</method>
 		<method name="get_frames_processed">

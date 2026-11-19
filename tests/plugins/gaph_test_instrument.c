@@ -254,6 +254,10 @@ static void arp_echo(const Instrument *s, const clap_process_t *proc, const clap
 
 static clap_process_status p_process(const clap_plugin_t *p, const clap_process_t *proc) {
 	Instrument *s = self_of(p);
+	/* For hosts' crash-protection tests: with GAPH_TEST_CRASH set, crash for real once a note sounds. */
+	if (s->note_count > 0 && getenv("GAPH_TEST_CRASH")) {
+		*(volatile int *)0 = 1;
+	}
 	const uint32_t frames = proc->frames_count;
 	const uint32_t count = proc->in_events->size(proc->in_events);
 	if (proc->audio_outputs_count < 1 || proc->audio_outputs[0].channel_count < 2) {

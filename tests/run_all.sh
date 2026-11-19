@@ -98,6 +98,26 @@ else
 	exit 1
 fi
 
+echo "[crash protection: a plugin that crashed the program is refused at the next start]"
+# Three real runs, in a state folder of their own: the test instrument crashes in its process()
+# (GAPH_TEST_CRASH), which must mark it; the next start refuses it, and clearing the mark loads it;
+# a crash in Godot's own code (OS.crash) must mark nothing.
+crash_state="${GAPH_TEST_TMP:-${TMPDIR:-/tmp}/godot-audio-plugin-host-tests}/crash_state"
+crash_run() { env GAPH_SCAN_STATE_DIR="$crash_state" CRASHTEST_STEP="$1" timeout 60 godot --headless --path "$root/demo" res://tests/crash_test.tscn 2>&1; }
+rm -rf "$crash_state"
+(GAPH_TEST_CRASH=1 crash_run plugin > /dev/null 2>&1) 2> /dev/null || true
+checked=$(crash_run check | grep CRASHTEST || true)
+rm -rf "$crash_state"
+(crash_run godot > /dev/null 2>&1) 2> /dev/null || true
+innocent=$(crash_run check | grep "CRASHTEST marked" || true)
+rm -rf "$crash_state"
+if [[ "$checked" == *"refused=true"*"crashed the program before"* && "$checked" == *"after clearing: loaded=true marked=[]"* && "$innocent" == *"marked: []"* ]]; then
+	echo "CRASH GUARD OK: the crashing plugin marked and refused, cleared and loaded; a crash in Godot marks nothing"
+else
+	echo "FAIL  crash guard: $checked | $innocent"
+	exit 1
+fi
+
 echo "[a running game: a plugin window opened from a script, under Xvfb]"
 # Only under a virtual X server of its own (display 98), never on the user's screen; skipped where
 # Xvfb or a CLAP plugin with a GUI (Dragonfly Hall Reverb) is missing. The X server is asked

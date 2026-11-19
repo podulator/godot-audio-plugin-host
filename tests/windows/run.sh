@@ -23,7 +23,7 @@ fi
 "$cc" -std=c11 -O1 -Wall -Wextra -Werror -shared -I"$root/thirdparty/clap/include" \
 	"$root/tests/plugins/gaph_test_plugin.c" -o "$tmp/gaph_test.clap" -luser32
 "$cxx" -std=c++17 -O1 -Wall -Wextra -static -I"$root/src" -I"$root/thirdparty/clap/include" \
-	"$root/tests/gui/clap_gui_test.cpp" "$root/src/clap/clap_processor.cpp" "$root/src/clap/clap_library.cpp" "$root/src/clap/clap_presets.cpp" \
+	"$root/tests/gui/clap_gui_test.cpp" "$root/src/clap/clap_processor.cpp" "$root/src/clap/clap_library.cpp" "$root/src/core/crash_guard.cpp" "$root/src/clap/clap_presets.cpp" \
 	"$root/src/core/win32_window.cpp" -o "$tmp/clap_gui_test.exe" -lgdi32 -luser32
 # VST3: the test plugin as a bundle (gaph_test_vst3.vst3/Contents/x86_64-win/gaph_test_vst3.vst3),
 # and the test, with the VST3 host's sources and the SDK parts each needs.
@@ -41,7 +41,7 @@ mkdir -p "$bundle"
 	$(for f in $plugin_sdk; do echo "$sdk/$f"; done) "$sdk/public.sdk/source/main/dllmain.cpp" \
 	-o "$bundle/gaph_test_vst3.vst3" -lole32 -luser32
 "$cxx" -std=c++17 -O1 -static -DRELEASE=1 -Wno-deprecated-declarations -I"$root/src" -I"$sdk" "$root/tests/gui/vst3_gui_test.cpp" \
-	"$root/src/vst3/vst3_processor.cpp" "$root/src/vst3/vst3_module.cpp" "$root/src/vst3/vst3_presets.cpp" "$root/src/vst3/vst3_threadchecker.cpp" "$root/src/core/win32_window.cpp" \
+	"$root/src/vst3/vst3_processor.cpp" "$root/src/vst3/vst3_module.cpp" "$root/src/core/crash_guard.cpp" "$root/src/vst3/vst3_presets.cpp" "$root/src/vst3/vst3_threadchecker.cpp" "$root/src/core/win32_window.cpp" \
 	$(grep -v '^#' "$root/vst3_sdk_sources.txt" | sed "s|module_linux.cpp|module_win32.cpp|; s|^|$sdk/|") \
 	-o "$tmp/vst3_gui_test.exe" -lole32 -lshell32 -luuid -luser32 -lgdi32
 
