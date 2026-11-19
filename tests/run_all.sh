@@ -22,6 +22,7 @@ own="$root/examples/build"
 "$(command -v scons || echo "$root/.venv/bin/scons")" -C "$root/examples" -Q -j"$(nproc)" test_plugin=yes > /dev/null
 
 "$root/tests/core/run.sh"
+"$root/tests/midi/run.sh"
 echo "[clap host, no Godot]"
 "$root/tests/clap/run.sh"
 echo "[vst3 host, no Godot]"

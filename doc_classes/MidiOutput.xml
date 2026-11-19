@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="MidiOutput" inherits="RefCounted" api_type="extension" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Sends MIDI to an output port (a hardware synth, another program), as a [MidiDriver] target.
+	</brief_description>
+	<description>
+		Bind it to a channel like an instrument, and the driver's notes, clips and controllers go out there, each at its moment:
+		[codeblock]
+		var out := MidiOutput.open(MidiOutput.get_ports()[0].id)
+		midi.set_channel_target(2, out)
+		midi.place_clip(load("res://music/bass.mid"))
+		[/codeblock]
+		A sender thread of its own sends each message at its due time, to about a millisecond. Due times are when an instrument would be heard, so by default the output also waits as long as Godot's audio takes to reach the speakers, and external gear sounds together with the game ([member delay_ms]). The driver's pause, stop and seek withdraw what has not gone out yet and send note-offs for the notes sounding; panic adds All Sound Off on their channels.
+		Messages go out as MIDI 1.0: values at MIDI 2.0 resolution are scaled down on the way. Platforms as for [MidiInput].
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="close">
+			<return type="void" />
+			<description>
+				Closes the port; messages not sent yet are dropped.
+			</description>
+		</method>
+		<method name="get_port_id" qualifiers="const">
+			<return type="String" />
+			<description>
+				The open port's id.
+			</description>
+		</method>
+		<method name="get_ports" qualifiers="static">
+			<return type="Dictionary[]" />
+			<description>
+				Every MIDI output the platform offers, as a [Dictionary] each with [code]id[/code] (what [method open] takes) and [code]name[/code].
+			</description>
+		</method>
+		<method name="is_open" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Whether the port is open.
+			</description>
+		</method>
+		<method name="midi_event">
+			<return type="void" />
+			<param index="0" name="time_us" type="int" />
+			<param index="1" name="source" type="int" />
+			<param index="2" name="kind" type="int" />
+			<param index="3" name="channel" type="int" />
+			<param index="4" name="index" type="int" />
+			<param index="5" name="value" type="int" />
+			<param index="6" name="note_id" type="int" />
+			<description>
+				The [MidiDriver] target method: the message goes out at [param time_us], plus [member delay_ms].
+			</description>
+		</method>
+		<method name="midi_stop">
+			<return type="void" />
+			<param index="0" name="time_us" type="int" />
+			<param index="1" name="source" type="int" />
+			<param index="2" name="mode" type="int" />
+			<description>
+				The [MidiDriver] target method: from [param time_us] on, messages from [param source] not sent yet are dropped; with [constant MidiDriver.STOP_RELEASE] its sounding notes get note-offs, with [constant MidiDriver.STOP_CUT] also All Sound Off.
+			</description>
+		</method>
+		<method name="open" qualifiers="static">
+			<return type="MidiOutput" />
+			<param index="0" name="port_id" type="String" />
+			<description>
+				Opens the output with this id (see [method get_ports]). Returns [code]null[/code], with the reason printed, if it cannot.
+			</description>
+		</method>
+		<method name="send_bytes">
+			<return type="void" />
+			<param index="0" name="bytes" type="PackedByteArray" />
+			<description>
+				Sends [param bytes], one whole MIDI message (status byte first, or a whole SysEx), at once.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="delay_ms" type="float" setter="set_delay_ms" getter="get_delay_ms" default="-1.0">
+			How much later than its due time a message goes out. -1 (the default): Godot's audio output latency ([method AudioServer.get_output_latency]), so the output and the game's audio are heard together. 0 for none; more to match gear with its own delay.
+		</member>
+	</members>
+</class>

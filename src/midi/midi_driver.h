@@ -138,6 +138,12 @@ public:
 	Ref<MidiPart> play_clip(const Ref<MidiClip> &p_clip, double p_at, int p_repeats);
 	gaph::midi::Sequencer &sequencer() { return seq; } // for MidiPart
 
+	// For MidiInput: live messages, due at p_due_us (or now, if that has passed), values inside.
+	// A live note is this driver's like any other: stop and panic end it.
+	int64_t live_note_on(int p_channel, int p_key, uint32_t p_velocity, int64_t p_due_us);
+	void live_note_off(int64_t p_id, int64_t p_due_us);
+	void live_post(gaph::midi::Kind p_kind, int p_channel, int p_index, uint32_t p_value, int64_t p_due_us);
+
 	// The transport.
 	void play();
 	void pause();

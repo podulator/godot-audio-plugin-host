@@ -6,7 +6,7 @@ Run **CLAP** and **VST® 3** audio effect plugins on Godot's audio buses, and **
 | --- | --- |
 | `addons/clap_host/` | `ClapPluginEffect`, `ClapSidechainSend`, `ClapInstrument` |
 | `addons/vst3_host/` | `Vst3PluginEffect`, `Vst3SidechainSend`, `Vst3Instrument` |
-| `addons/midi_host/` | `MidiDriver`, `MidiNote`, `MidiClip`, `MidiPart` |
+| `addons/midi_host/` | `MidiDriver`, `MidiNote`, `MidiClip`, `MidiPart`, `MidiInput`, `MidiOutput` |
 
 Each addon works on its own, and they can be used together in one project.
 
@@ -168,6 +168,26 @@ part.set_channel(1, 3)                        # its channel 1 plays on channel 3
 - **Exact:** a clip's notes land on the exact sample, tempo changes included. Its events are worked out a lookahead ahead as the music gets there, so a long song or an endless pattern costs nothing up front.
 - **Kept from a file:** notes, controllers, pitch bend, pressures, programs (a MIDI 2.0 program's bank as bank select), tempo, time signatures and track names. **Skipped:** SysEx, MIDI 2.0 groups and per-note controllers.
 
+### MIDI devices
+
+`MidiInput` reads a MIDI port (a keyboard, a controller, another program); `MidiOutput` sends to one (a hardware synth, a DAW), as a driver target like an instrument.
+
+```gdscript
+var input := MidiInput.new()                  # a node
+add_child(input)
+input.open(MidiInput.get_ports()[0].id)       # get_ports(): [{id, name}, ...]
+input.set_driver(midi)                        # play it on midi's instruments
+input.received.connect(_on_midi)              # and/or handle it yourself
+
+var out := MidiOutput.open(MidiOutput.get_ports()[0].id)
+midi.set_channel_target(2, out)               # notes, clips and controllers on channel 2 go out
+```
+
+- **Input timing:** messages arrive with their arrival time. By default they play at once (up to a frame late, unevenly); `latency_ms` makes each play exactly that long after it arrived, so the spacing of what was played is kept.
+- **Output timing:** a sender thread sends each message at its moment, to about a millisecond, and by default waits as long as Godot's audio takes to reach the speakers, so external gear and the game are heard together (`delay_ms`).
+- **Stop and panic** end live notes on the driver they play through, and a driver's notes on an output.
+- **Platforms:** ALSA on Linux (loaded at run time: without it, no ports), CoreMIDI on macOS, WinMM on Windows. Android has no ports yet. Ports speak MIDI 1.0; values are scaled at the edge.
+
 ## Instruments
 
 `ClapInstrument` and `Vst3Instrument` play an instrument plugin as an audio stream: put one in a player's `stream`, play the player, and bind the instrument to a `MidiDriver` channel.
@@ -283,7 +303,7 @@ xattr -dr com.apple.quarantine addons/clap_host addons/vst3_host addons/midi_hos
 ## Limitations
 
 - **No offline rendering.**
-- **No MIDI hardware yet.** [MIDI](#midi) comes from scripts and MIDI files; MIDI input from and output to devices is not there yet.
+- **No MIDI ports on Android yet** (its MIDI service is a Java API).
 - **Stereo pairs.** Godot runs one instance of an effect per stereo channel pair, so on a 5.1 or 7.1 bus there are three or four plugin instances, kept in step by the host.
 - **Latency.** Parameter changes are heard one audio block (about 11.6 ms at 44.1 kHz) after they are made, evenly spaced. Plugins that report their own latency are not compensated for.
 - **Blocks of 512 frames.** That is Godot's mixing block; the host never hands a plugin more than it was prepared for.

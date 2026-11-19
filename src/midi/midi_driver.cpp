@@ -3,6 +3,7 @@
 #include "core/block_clock.h"
 
 #include <godot_cpp/core/class_db.hpp>
+#include <algorithm>
 #include <godot_cpp/variant/utility_functions.hpp>
 
 using namespace godot;
@@ -241,6 +242,20 @@ void MidiDriver::program_change(int p_channel, int p_program, double p_at) {
 
 void MidiDriver::all_notes_off(double p_at) {
 	seq.end_every_note(p_at, get_time_us());
+}
+
+// --- Live (MidiInput) ----------------------------------------------------------------------------
+
+int64_t MidiDriver::live_note_on(int p_channel, int p_key, uint32_t p_velocity, int64_t p_due_us) {
+	return seq.note_on(uint8_t(p_channel), uint16_t(p_key), p_velocity, 0.0, Transport::NOW, std::max(get_time_us(), p_due_us));
+}
+
+void MidiDriver::live_note_off(int64_t p_id, int64_t p_due_us) {
+	seq.end_note(p_id, Transport::NOW, std::max(get_time_us(), p_due_us));
+}
+
+void MidiDriver::live_post(Kind p_kind, int p_channel, int p_index, uint32_t p_value, int64_t p_due_us) {
+	seq.post(Event{ p_kind, uint8_t(p_channel), uint16_t(p_index), p_value, -1 }, Transport::NOW, std::max(get_time_us(), p_due_us));
 }
 
 // --- Clips ---------------------------------------------------------------------------------------

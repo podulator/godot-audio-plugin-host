@@ -171,7 +171,16 @@ else:
 
 # The MIDI driver: format-neutral, and its core is header-only (src/core/midi_*.h), so none of the
 # core's .cpp files (plugin hosting, windows) go in. Every platform, Android too.
-library_midi = build_extension("midi_host", ["src/midi"], docs_prefix="Midi", with_core=False)
+# MIDI ports (src/midi/ports_*.cpp, each built only on its platform): WinMM on Windows, CoreMIDI
+# on macOS; Linux opens ALSA at run time (dlopen), so a system without it simply has no ports.
+midi_link = None
+if env["platform"] == "windows":
+    midi_link = {"LIBS": ["winmm"]}
+elif env["platform"] == "macos":
+    midi_link = {"LINKFLAGS": ["-framework", "CoreMIDI", "-framework", "CoreFoundation"]}
+elif env["platform"] == "linux":
+    midi_link = {"LIBS": ["dl", "pthread"]}
+library_midi = build_extension("midi_host", ["src/midi"], docs_prefix="Midi", with_core=False, extra_link=midi_link)
 
 # Android: CLAP only. The VST 3 SDK does not support Android, and there are no VST 3 plugins for it.
 # vst3_host gets an empty extension instead (src/vst3_android/stub.c says why).

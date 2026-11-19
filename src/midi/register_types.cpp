@@ -1,6 +1,7 @@
 // The midi_host extension: MidiDriver, MidiNote, MidiClip and MidiPart. Format-neutral: no plugin code at all.
 #include "midi_driver.h"
 #include "midi_import.h"
+#include "midi_io.h"
 
 #include <gdextension_interface.h>
 #include <godot_cpp/classes/editor_plugin_registration.hpp>
@@ -25,6 +26,8 @@ static void initialize_midi_host(ModuleInitializationLevel p_level) {
 	GDREGISTER_CLASS(MidiNote);
 	GDREGISTER_CLASS(MidiClip);
 	GDREGISTER_CLASS(MidiPart);
+	GDREGISTER_CLASS(MidiOutput);
+	GDREGISTER_CLASS(MidiInput);
 }
 
 static void uninitialize_midi_host(ModuleInitializationLevel) {}

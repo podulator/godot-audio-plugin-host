@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="MidiInput" inherits="Node" api_type="extension" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Reads a MIDI input port (a keyboard, a controller, another program) and plays it through a [MidiDriver], or hands it to scripts.
+	</brief_description>
+	<description>
+		A node: add it to the tree, [method open] a port from [method get_ports], and either connect [signal received] or [method set_driver] to play what arrives on that driver's channel targets.
+		[codeblock]
+		var input := MidiInput.new()
+		add_child(input)
+		input.open(MidiInput.get_ports()[0].id)
+		input.set_driver(midi)          # live notes play on midi's instruments
+		input.latency_ms = 20.0         # optional: exact spacing for a fixed delay
+		[/codeblock]
+		Messages arrive on the platform's MIDI thread with their arrival time and are handed out on the main thread every frame. Played through a driver, a live note is that driver's like any other: its [method MidiDriver.stop] and [method MidiDriver.panic] end it. Values arrive as MIDI 1.0 (the ports speak it) and reach the driver's targets at MIDI 2.0 resolution, as everything does.
+		Platforms: ALSA on Linux (loaded at run time: without it there are no ports), CoreMIDI on macOS, WinMM on Windows. Android has no ports yet. SysEx and system messages reach [signal raw_received] only.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="close">
+			<return type="void" />
+			<description>
+				Closes the port. Nothing arrives after this returns.
+			</description>
+		</method>
+		<method name="get_driver" qualifiers="const">
+			<return type="MidiDriver" />
+			<description>
+				The driver live messages are played on, or [code]null[/code].
+			</description>
+		</method>
+		<method name="get_open_error" qualifiers="const">
+			<return type="String" />
+			<description>
+				Why the last [method open] failed, or an empty string.
+			</description>
+		</method>
+		<method name="get_port_id" qualifiers="const">
+			<return type="String" />
+			<description>
+				The open port's id, or an empty string.
+			</description>
+		</method>
+		<method name="get_ports" qualifiers="static">
+			<return type="Dictionary[]" />
+			<description>
+				Every MIDI input the platform offers, as a [Dictionary] each with [code]id[/code] (what [method open] takes, stable while the port exists) and [code]name[/code]. Empty where the platform has no MIDI system.
+			</description>
+		</method>
+		<method name="inject_bytes">
+			<return type="void" />
+			<param index="0" name="bytes" type="PackedByteArray" />
+			<description>
+				Handles [param bytes], one whole MIDI 1.0 message, as if it had just arrived: for tests, and for MIDI from elsewhere (a network, a custom device).
+			</description>
+		</method>
+		<method name="is_open" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Whether a port is open.
+			</description>
+		</method>
+		<method name="open">
+			<return type="bool" />
+			<param index="0" name="port_id" type="String" />
+			<description>
+				Opens the input with this id (see [method get_ports]), closing any open one. Returns [code]false[/code], with the reason in [method get_open_error], if it cannot.
+			</description>
+		</method>
+		<method name="set_driver">
+			<return type="void" />
+			<param index="0" name="driver" type="MidiDriver" />
+			<description>
+				Plays what arrives on [param driver]'s channel targets ([code]null[/code] for none). Channel messages only: notes, controllers, pitch bend, pressures and programs.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="latency_ms" type="float" setter="set_latency_ms" getter="get_latency_ms" default="0.0">
+			0 (the default): each message plays as soon as possible, so up to a frame late, unevenly. Above 0: each plays exactly that long after it arrived, so the spacing of what was played is kept, at the cost of that fixed delay. 10-20 ms suits most playing.
+		</member>
+		<member name="process_mode" type="int" setter="set_process_mode" getter="get_process_mode" overrides="Node" enum="Node.ProcessMode" default="3" />
+	</members>
+	<signals>
+		<signal name="raw_received">
+			<param index="0" name="bytes" type="PackedByteArray" />
+			<param index="1" name="time_us" type="int" />
+			<description>
+				Any message arrived, as its bytes: SysEx, clock and transport messages included.
+			</description>
+		</signal>
+		<signal name="received">
+			<param index="0" name="kind" type="int" />
+			<param index="1" name="channel" type="int" />
+			<param index="2" name="index" type="int" />
+			<param index="3" name="value" type="int" />
+			<param index="4" name="time_us" type="int" />
+			<description>
+				A channel message arrived: [param kind] a [enum MidiDriver.EventKind] (a note-on with velocity 0 comes as a note-off), [param channel] 1-16, [param index] the note or controller, [param value] in MIDI 1.0's range (pitch bend -8192 to 8191), [param time_us] when it arrived, on [method MidiDriver.get_time_us]'s clock.
+			</description>
+		</signal>
+	</signals>
+</class>

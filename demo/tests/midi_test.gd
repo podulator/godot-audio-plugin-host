@@ -25,6 +25,8 @@ func _ready() -> void:
 	_test_clip_import()
 	await _test_place_clip()
 	await _test_pattern()
+	await _test_input_injected()
+	await _test_ports_loopback()
 	print("MIDI %s" % ("OK" if failures == 0 else "FAILED (%d)" % failures))
 	get_tree().quit(1 if failures else 0)
 
@@ -262,3 +264,79 @@ func _test_pattern() -> void:
 	_check(even, "each a quarter beat after the last, exactly")
 	_check(not part.is_playing(), "done after its 2 rounds")
 	midi.queue_free()
+
+
+# MidiInput without any hardware: an injected note reaches the `received` signal in MIDI 1.0
+# values and a driver's target, and the driver's stop() ends that live note.
+func _test_input_injected() -> void:
+	var midi := MidiDriver.create(1)
+	add_child(midi)
+	var rec := Recorder.new()
+	midi.set_channel_target(2, rec)
+	var input := MidiInput.new()
+	add_child(input)
+	input.set_driver(midi)
+	var got := []
+	input.received.connect(func(kind: int, channel: int, index: int, value: int, _t: int) -> void: got.append([kind, channel, index, value]))
+	input.inject_bytes(PackedByteArray([0x91, 60, 100]))
+	input.inject_bytes(PackedByteArray([0xE1, 0x00, 0x60])) # pitch bend +4096
+	await _frames(0.1)
+	_check(got == [[MidiDriver.EVENT_NOTE_ON, 2, 60, 100], [MidiDriver.EVENT_PITCH_BEND, 2, 0, 4096]], "received: a note and a pitch bend, in MIDI 1.0 values (%s)" % [got])
+	var on := rec.of(MidiDriver.EVENT_NOTE_ON)
+	_check(on.size() == 1 and on[0].channel == 2 and on[0].index == 60, "the live note reaches the driver's target on channel 2")
+	midi.stop()
+	_check(rec.stops.size() > 0 and rec.stops[-1].mode == MidiDriver.STOP_RELEASE, "the driver's stop() ends the live note too")
+	input.queue_free()
+	midi.queue_free()
+
+
+# Through the platform's MIDI, where the kernel's Midi Through port exists (Linux): a driver plays
+# notes a beat apart into a MidiOutput, Midi Through loops them to a MidiInput feeding a second
+# driver. With latency_ms set, the spacing survives the trip to within a millisecond; the first
+# driver's stop() reaches the far side as a note-off.
+func _test_ports_loopback() -> void:
+	var through := ""
+	for p in MidiInput.get_ports():
+		if p.name.contains("Midi Through"):
+			through = p.id
+	if through.is_empty():
+		print("SKIP  no Midi Through port: MIDI port loopback not tested (inputs: %s)" % [MidiInput.get_ports()])
+		return
+	_check(MidiOutput.get_ports().any(func(p): return p.id == through), "Midi Through is an output too (%s)" % through)
+	var out := MidiOutput.open(through)
+	_check(out != null and out.is_open(), "MidiOutput opens %s" % through)
+	if out == null:
+		return
+	out.delay_ms = 0.0
+	var input := MidiInput.new()
+	add_child(input)
+	_check(input.open(through), "MidiInput opens %s (%s)" % [through, input.get_open_error()])
+	var far := MidiDriver.create(1)
+	add_child(far)
+	var rec := Recorder.new()
+	far.set_channel_target(1, rec)
+	input.set_driver(far)
+	input.latency_ms = 30.0
+	var near := MidiDriver.create(1)
+	add_child(near)
+	near.set_channel_target(1, out)
+	near.play()
+	for i in 4:
+		near.note_on(1, 60 + i, 100, 0.5, near.at_beat(0.5 + i))
+	near.note_on(1, 72, 100, 0, near.at_beat(0.5)) # held: the stop ends it
+	await _frames(2.6)
+	near.stop()
+	await _frames(0.3)
+	var on := rec.of(MidiDriver.EVENT_NOTE_ON)
+	var off := rec.of(MidiDriver.EVENT_NOTE_OFF)
+	_check(on.size() == 5, "5 notes made the trip (%d)" % on.size())
+	var worst := 0
+	var plain := on.filter(func(e): return e.index != 72)
+	for i in range(1, plain.size()):
+		worst = maxi(worst, absi(plain[i].time_us - plain[i - 1].time_us - BEAT_US))
+	_check(plain.size() == 4 and worst <= 1000, "a beat apart after the trip, within 1 ms (worst %d us)" % worst)
+	_check(off.any(func(e): return e.index == 72), "the near driver's stop() reached the far side as a note-off")
+	near.queue_free()
+	far.queue_free()
+	input.queue_free()
+	out.close()
