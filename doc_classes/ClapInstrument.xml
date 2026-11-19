@@ -218,7 +218,7 @@
 		<method name="open_editor">
 			<return type="bool" />
 			<description>
-				Opens the plugin's own window, as for [ClapPluginEffect] (editor only). The inspector's [b]Open Plugin Window[/b] button does the same.
+				Opens the plugin's own window, as for [ClapPluginEffect], in the editor or a running game. In the editor, the inspector's [b]Open Plugin Window[/b] button does the same.
 			</description>
 		</method>
 		<method name="scan_plugins" qualifiers="static">

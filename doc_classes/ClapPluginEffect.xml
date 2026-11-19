@@ -19,7 +19,7 @@
 		[/codeblock]
 		[b]Plugin folders:[/b] plugins are found in the folders listed in [code]audio/plugin_host/clap/search_paths[/code] in Project Settings (default [code]res://bin/clap[/code]), then in the system's CLAP folders ([code]CLAP_PATH[/code], [code]~/.clap[/code], [code]/usr/lib/clap[/code] on Linux). The system folders are searched in the editor, and when the game is run from it, if [code]audio/plugin_host/clap/use_system_paths[/code] is on (the default); in an exported game only if [code]use_system_paths_in_exports[/code] is on (off by default). On export, the project's plugin folders are copied to [code]bin/clap[/code] next to the game's executable, since a plugin cannot be loaded from inside a [code].pck[/code] file, and the export warns about each effect whose plugin is in none of them.
 		[b]Note:[/b] Godot runs one instance of an effect per stereo channel pair of a bus, so on a surround bus the plugin runs several times. Parameter changes reach every instance.
-		[b]Note:[/b] Plugin windows are available in the editor only, on Linux (X11, or XWayland on Wayland desktops), Windows and macOS. On macOS the plugin is not given the editor's display scale: macOS scales plugin windows for Retina screens itself.
+		[b]Note:[/b] Plugin windows open in the editor and in running games (exported ones too), on Linux (X11, or XWayland on Wayland desktops), Windows and macOS. On macOS the plugin is not given the editor's display scale: macOS scales plugin windows for Retina screens itself.
 	</description>
 	<tutorials>
 	</tutorials>
@@ -200,7 +200,7 @@
 			<description>
 				Opens the plugin's own GUI in a window of its own, or brings it to the front if it is already open. Returns [code]false[/code] if it cannot open, with a warning saying why. The window stays open until it is closed by the user, by [method close_editor], or by the plugin, which emits [signal editor_closed].
 				Clicking an enabled effect on a bus in the Audio panel calls this.
-				[b]Note:[/b] Available in the editor only (Linux, Windows and macOS).
+				Works in the editor and in a running game, on Linux, Windows and macOS: a game can show a plugin's real interface (a synth's panel in a music app, say).
 			</description>
 		</method>
 		<method name="scan_plugins" qualifiers="static">

@@ -98,6 +98,32 @@ else
 	exit 1
 fi
 
+echo "[a running game: a plugin window opened from a script, under Xvfb]"
+# Only under a virtual X server of its own (display 98), never on the user's screen; skipped where
+# Xvfb or a CLAP plugin with a GUI (Dragonfly Hall Reverb) is missing. The X server is asked
+# whether the plugin's window really exists, at its size, while the game holds it open.
+if command -v Xvfb > /dev/null && command -v xwininfo > /dev/null && [ -f /usr/lib/clap/DragonflyHallReverb.clap ] && [ "$(uname -s)" = Linux ]; then
+	Xvfb :98 -screen 0 1280x800x24 -nolisten tcp > /dev/null 2>&1 &
+	xvfb=$!
+	sleep 1.5
+	log="${GAPH_TEST_TMP:-${TMPDIR:-/tmp}/godot-audio-plugin-host-tests}/game_window.log"
+	mkdir -p "$(dirname "$log")"
+	DISPLAY=:98 timeout 60 godot --path "$root/demo" --rendering-driver opengl3 res://tests/game_window_test.tscn > "$log" 2>&1 &
+	game=$!
+	for _ in $(seq 1 80); do grep -q "GAMEWINDOW ready" "$log" && break; sleep 0.25; done
+	seen=$(DISPLAY=:98 xwininfo -root -tree 2>/dev/null | grep -c '"Dragonfly Hall Reverb (CLAP)".*[0-9]\{3\}x[0-9]\{3\}' || true)
+	wait "$game" || true
+	kill "$xvfb" 2>/dev/null || true
+	if grep -q "GAMEWINDOW opened=true is_open=true" "$log" && grep -q "GAMEWINDOW closed is_open=false" "$log" && [ "$seen" -ge 1 ]; then
+		echo "GAME WINDOW OK: opened from a game, seen on the X server, closed"
+	else
+		echo "FAIL  plugin window in a game: $(grep GAMEWINDOW "$log" | tr '\n' ' ') (seen on X: $seen)"
+		exit 1
+	fi
+else
+	echo "SKIP  plugin window in a game: needs Xvfb, xwininfo and Dragonfly Hall Reverb"
+fi
+
 echo "[real editor: a click on the enable checkbox doesn't open the window]"
 probe=$("$root/tests/editor_probe.sh" res://tests/toggle_probe.gd -u DISPLAY | grep -E "TOGGLEPROBE (A|B|C) (begin|end)|TOGGLEPROBE SKIP|cannot open the plugin window" || true)
 # "|| true": grep -c exits 1 when it counts zero, which is the expected answer for B, and

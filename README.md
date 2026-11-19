@@ -24,12 +24,12 @@ Each addon works on its own, and they can be used together in one project.
 - **Godot 4.5 or later** (tested with 4.5, 4.6 and 4.7).
 - One of these platforms. The libraries for all of them ship in the addons.
 
-| platform | architectures | plugin windows (editor) |
+| platform | architectures | plugin windows (editor and games) |
 | --- | --- | --- |
 | Linux | x86_64 (glibc 2.35 or later) | X11, and XWayland on Wayland desktops |
 | Windows | x86_64 | yes |
 | macOS | universal (Apple silicon and Intel), macOS 10.15 or later | yes |
-| Android | arm64 and x86_64, Android 7 (API 24) or later; **CLAP only**, tested with Godot 4.7 | no (exported games only) |
+| Android | arm64 and x86_64, Android 7 (API 24) or later; **CLAP only**, tested with Godot 4.7 | no |
 
 Android has no VST3 plugins, so it has no VST3 host either: the `vst3_host` addon is empty there, and `Vst3PluginEffect` does not exist in an Android game. Web is not supported: hosting means loading native plugin binaries, which a browser cannot.
 
@@ -76,7 +76,7 @@ for p in ClapPluginEffect.scan_plugins():     # every plugin in the plugin folde
 - `get_parameters()` lists every parameter (id, name, range, default, flags). `parameter_changed(id, value)` is emitted when the plugin changes one itself, for example from its own window. `parameters_changed` is emitted when a plugin changes its parameter list.
 - A `.clap` file can hold several plugins: `plugin_id` picks one (empty means the first).
 - `get_plugin_info()` describes the loaded plugin: name, vendor, version, features, ports.
-- `open_editor()`, `close_editor()`, `is_editor_open()` and `editor_closed` control the plugin's window (editor only).
+- `open_editor()`, `close_editor()`, `is_editor_open()` and `editor_closed` control the plugin's window, in the editor and in games.
 
 Every class, property, method and signal is described in the editor's help: press F1, or use **Search Help**, and look for `ClapPluginEffect`.
 
@@ -273,7 +273,7 @@ $Hats.stream = drums.get_output(3)             # or one at a time
 - **VST3** gets notes as VST3 note events. VST3 has no controller events: controllers, pitch bend, channel pressure and program changes reach the parameters the plugin assigns to them (its MIDI mapping), and do nothing where it assigns none.
 - **The transport:** the plugin follows the driver's tempo and song position, for tempo-synced arpeggiators, LFOs and delays. Both formats get a loop jump on its sample (for VST3, which hears the transport once per processing call, the host starts a new call there).
 - **Saved with the scene,** as for effects: the plugin's own state and the parameters set by hand. The parameters are sliders in the inspector.
-- **The plugin's window:** the **Open Plugin Window** button at the top of the instrument's inspector, or `open_editor()` from a script (editor only).
+- **The plugin's window:** the **Open Plugin Window** button at the top of the instrument's inspector, or `open_editor()` from a script (in a game too).
 - **Idle instruments cost nothing (CLAP):** a CLAP plugin that says it has nothing to do (no notes sounding) is not called until something arrives for it; `is_plugin_sleeping()` tells. CLAP effects sleep the same way while their input is silent.
 
 ## Where plugins are found
@@ -336,7 +336,7 @@ Clicking a plugin effect in the editor, or an instrument's **Open Plugin Window*
 | Windows | a window that stays above the editor | the editor's display scale |
 | macOS | a standard window | set by macOS itself (Retina) |
 
-Plugin windows exist in the editor only, never in an exported game. A plugin that offers no interface has none: its parameters are still in the inspector.
+Plugin windows open in the editor and in a running game, the exported one included: `open_editor()` from a script shows the plugin's own interface in a window of its own, above the game's, until `close_editor()` or the user closes it. A music app, a level editor with sound design, or a small DAW can offer real plugin interfaces this way. A plugin that offers no interface has none: its parameters are still in the inspector, and settable from scripts.
 
 Plugin windows on Windows and macOS are new in this release, and tested in CI with our own test plugins rather than yet with a wide range of commercial ones. Reports of plugins that misbehave are very welcome !!
 
@@ -375,7 +375,7 @@ xattr -dr com.apple.quarantine addons/clap_host addons/vst3_host addons/midi_hos
 
 **An effect passes audio through unchanged.** Its plugin was not found or did not load: `is_plugin_loaded()` is false and `get_load_error()` says why. A scene from another machine finds its plugins by name, in this machine's plugin folders.
 
-**The plugin window does not open.** Plugin windows are available in the editor only, and only for enabled effects. On Linux they need an X server; on a Wayland desktop that is XWayland, which most desktops run by default.
+**The plugin window does not open.** Only for enabled effects, on Linux, Windows and macOS (not Android). On Linux they need an X server; on a Wayland desktop that is XWayland, which most desktops run by default.
 
 **macOS says the library is damaged or cannot be checked.** The quarantine flag: see [Platform notes](#macos).
 

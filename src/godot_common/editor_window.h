@@ -1,8 +1,9 @@
 #pragma once
 
-// EditorWindow: the plugin GUI window behind open_editor() / close_editor(), shared by both
-// effect classes. Its own window, editor only, opened by clicking
-// the effect on a bus, and it stays open until closed (like a DAW).
+// EditorWindow: the plugin GUI window behind open_editor() / close_editor(), shared by effects and
+// instruments. Its own window, in the editor (opened by clicking the effect on a bus, or the
+// instrument's inspector button) and in a running game (open_editor() from a script), and it stays
+// open until closed (like a DAW). In a game, its owner is the game's main window.
 //
 // Each frame (tick):
 //   - the user closed the window, or the plugin closed its GUI  -> close;
@@ -32,15 +33,12 @@ public:
 	// MAIN THREAD. Opens the window and the plugin's GUI in it, or raises it if already open.
 	bool open(gaph::HostedEffect &p_hosted, const std::string &p_title, std::string &r_error) {
 #ifdef GAPH_HAS_PLUGIN_WINDOWS
-		if (!Engine::get_singleton()->is_editor_hint()) {
-			r_error = "plugin windows are available in the editor only";
-			return false;
-		}
 		if (window.is_open()) {
 			window.show();
 			return true;
 		}
-		// The owner: the editor's main window, so ours stays above it (Windows; ignored elsewhere).
+		// The owner: the main window (the editor's, or the game's), so ours stays above it (Windows;
+		// ignored elsewhere).
 		// get_native_handle(WINDOW_HANDLE) is the HWND on Windows.
 		const uint64_t owner = uint64_t(DisplayServer::get_singleton()->window_get_native_handle(DisplayServer::WINDOW_HANDLE, 0));
 		if (!window.create(p_title, 400, 300, owner, r_error)) {
@@ -122,8 +120,15 @@ private:
 		if (!forced.is_empty() && forced.to_float() > 0) {
 			return forced.to_float();
 		}
-		EditorInterface *ei = EditorInterface::get_singleton();
-		const double s = ei ? double(ei->get_editor_scale()) : 1.0;
+		double s = 1.0;
+		if (Engine::get_singleton()->is_editor_hint()) {
+			EditorInterface *ei = EditorInterface::get_singleton();
+			s = ei ? double(ei->get_editor_scale()) : 1.0;
+		} else {
+			// A game: the scale of the screen its main window is on (2 on a HiDPI screen).
+			DisplayServer *ds = DisplayServer::get_singleton();
+			s = double(ds->screen_get_scale(ds->window_get_current_screen(0)));
+		}
 		return s > 0 ? s : 1.0;
 	}
 
