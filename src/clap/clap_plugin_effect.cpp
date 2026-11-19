@@ -404,6 +404,22 @@ bool ClapPluginEffect::load_preset(const String &p_id) {
 	return true;
 }
 
+void ClapPluginEffect::map_controller(int p_channel, int p_controller, int64_t p_id) {
+	ERR_FAIL_COND_MSG(p_channel < 1 || p_channel > 16 || p_controller < 0 || p_controller > 127, "ClapPluginEffect: a controller is channel 1-16, number 0-127.");
+	learn.map(p_channel, p_controller, p_id);
+}
+
+// A controller moved (a MidiInput with add_learner(), or a script): learned if learning, then
+// moves its parameter.
+void ClapPluginEffect::midi_controller(int p_channel, int p_controller, int p_value) {
+	ensure_loaded();
+	const bool was_learning = learn.is_learning();
+	const int64_t moved = learn.controller(hosted, p_channel, p_controller, p_value);
+	if (was_learning && !learn.is_learning()) {
+		emit_signal("midi_learned", moved, p_channel, p_controller);
+	}
+}
+
 double ClapPluginEffect::get_parameter(int64_t p_id) {
 	ensure_loaded();
 	return hosted.get_param(uint32_t(p_id));
@@ -543,6 +559,17 @@ void ClapPluginEffect::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_parameter_modulation", "id", "amount", "delay"), &ClapPluginEffect::set_parameter_modulation, DEFVAL(0.0));
 	ClassDB::bind_method(D_METHOD("get_parameter_modulation", "id"), &ClapPluginEffect::get_parameter_modulation);
 	ClassDB::bind_method(D_METHOD("get_presets"), &ClapPluginEffect::get_presets);
+	ClassDB::bind_method(D_METHOD("learn_parameter", "id"), &ClapPluginEffect::learn_parameter);
+	ClassDB::bind_method(D_METHOD("cancel_learn"), &ClapPluginEffect::cancel_learn);
+	ClassDB::bind_method(D_METHOD("is_learning"), &ClapPluginEffect::is_learning);
+	ClassDB::bind_method(D_METHOD("map_controller", "channel", "controller", "id"), &ClapPluginEffect::map_controller);
+	ClassDB::bind_method(D_METHOD("unmap_parameter", "id"), &ClapPluginEffect::unmap_parameter);
+	ClassDB::bind_method(D_METHOD("clear_midi_map"), &ClapPluginEffect::clear_midi_map);
+	ClassDB::bind_method(D_METHOD("midi_controller", "channel", "controller", "value"), &ClapPluginEffect::midi_controller);
+	ClassDB::bind_method(D_METHOD("set_midi_map", "map"), &ClapPluginEffect::set_midi_map);
+	ClassDB::bind_method(D_METHOD("get_midi_map"), &ClapPluginEffect::get_midi_map);
+	ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "midi_map", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_midi_map", "get_midi_map");
+	ADD_SIGNAL(MethodInfo("midi_learned", PropertyInfo(Variant::INT, "id"), PropertyInfo(Variant::INT, "channel"), PropertyInfo(Variant::INT, "controller")));
 	ClassDB::bind_method(D_METHOD("set_midi_output_driver", "driver"), &ClapPluginEffect::set_midi_output_driver);
 	ClassDB::bind_method(D_METHOD("get_midi_output_driver"), &ClapPluginEffect::get_midi_output_driver);
 	ClassDB::bind_method(D_METHOD("set_midi_output_latency_ms", "ms"), &ClapPluginEffect::set_midi_output_latency_ms);

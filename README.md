@@ -97,6 +97,18 @@ The Add Effect menu lists effects only: instruments play as [audio streams](#ins
 
 Setting `plugin_state` from a script loads a preset: it replaces every value set by hand so far.
 
+## MIDI learn
+
+Hardware knobs and faders move plugin parameters, through a `MidiInput`:
+
+```gdscript
+input.add_learner(synth)                         # controllers from this input reach the synth
+synth.learn_parameter(cutoff)                    # the next knob turned is mapped to Cutoff
+synth.map_controller(1, 74, cutoff)              # or map one by hand: channel 1, CC 74
+```
+
+A controller's 0-127 moves its parameter over the whole range, as a short glide so a knob never steps audibly. Mappings save with the scene (`midi_map`); `midi_learned` reports each one learned.
+
 ## Notes out of plugins
 
 Arpeggiators, chord generators and step sequencers send notes rather than (or as well as) sound. Effects and instruments hand them on:

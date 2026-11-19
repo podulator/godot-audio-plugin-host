@@ -2,6 +2,7 @@
 
 ## In development
 
+- **MIDI learn:** `learn_parameter()` maps the next controller moved to a parameter (`map_controller()` by hand); a `MidiInput` feeds its learners (`add_learner()`), each controller moving its parameter over the whole range as a short glide. Mappings save with the scene (`midi_map`).
 - **Notes out of plugins:** MIDI an effect or instrument's plugin sends (an arpeggiator's notes) comes out as the `midi_output` signal, timed to the sample, and plays through a `MidiDriver` with `set_midi_output_driver()`, optionally at a fixed latency for exact spacing (`MidiDriver.receive_midi()`).
 - **Presets:** `get_presets()` and `load_preset()` on effects and instruments: CLAP preset discovery (built-in presets and preset files, loaded with `preset-load`), VST3 program lists and `.vstpreset` files. A preset loads into every instance and becomes the saved state.
 - **Sound that follows gameplay:** `set_parameter_ramp()` glides a parameter sample-exactly; `set_parameter_modulation()` moves one without touching its saved value (natively where a CLAP plugin allows it, emulated otherwise); effects take a tempo, as a plain `bpm` (with `sync_beat()` for phase) or from a `MidiDriver` (`add_transport_target()`). Instruments gained `set_parameter_at()`. A transport now also reaches an effect or instrument whose audio starts after it was sent.

@@ -18,6 +18,13 @@
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="add_learner">
+			<return type="void" />
+			<param index="0" name="learner" type="Object" />
+			<description>
+				Hands every controller message, as well, to [param learner] (an effect or instrument, or any object with [code]midi_controller(channel, controller, value)[/code]) for MIDI learn and its mappings: hardware knobs moving plugin parameters.
+			</description>
+		</method>
 		<method name="close">
 			<return type="void" />
 			<description>
@@ -66,6 +73,13 @@
 			<param index="0" name="port_id" type="String" />
 			<description>
 				Opens the input with this id (see [method get_ports]), closing any open one. Returns [code]false[/code], with the reason in [method get_open_error], if it cannot.
+			</description>
+		</method>
+		<method name="remove_learner">
+			<return type="void" />
+			<param index="0" name="learner" type="Object" />
+			<description>
+				Stops handing controller messages to [param learner].
 			</description>
 		</method>
 		<method name="set_driver">

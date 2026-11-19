@@ -124,6 +124,11 @@ public:
 	void set_latency_ms(double p_ms);
 	double get_latency_ms() const { return latency_ms; }
 
+	// MIDI learn: every controller message also goes to each learner (an effect or instrument, or
+	// any object with midi_controller(channel, controller, value), MIDI 1.0 values).
+	void add_learner(Object *p_learner);
+	void remove_learner(Object *p_learner);
+
 	// For tests and scripts: as if this message had arrived now.
 	void inject_bytes(const PackedByteArray &p_bytes);
 
@@ -146,6 +151,7 @@ private:
 	std::mutex mutex;
 	std::vector<Message> inbox; // filled on the backend's thread, emptied on the main thread
 	std::map<int, std::vector<int64_t>> live; // MAIN thread: channel * 128 + key -> the driver's note ids, oldest first
+	std::vector<uint64_t> learners; // instance ids
 };
 
 } // namespace godot

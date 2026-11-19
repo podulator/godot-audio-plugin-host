@@ -258,6 +258,20 @@ MidiDriver *MidiInput::get_driver() const {
 	return Object::cast_to<MidiDriver>(ObjectDB::get_instance(driver_id));
 }
 
+void MidiInput::add_learner(Object *p_learner) {
+	ERR_FAIL_COND_MSG(!p_learner || !p_learner->has_method("midi_controller"), "MidiInput: a learner needs midi_controller(channel, controller, value): an effect or instrument.");
+	const uint64_t id = p_learner->get_instance_id();
+	if (std::find(learners.begin(), learners.end(), id) == learners.end()) {
+		learners.push_back(id);
+	}
+}
+
+void MidiInput::remove_learner(Object *p_learner) {
+	if (p_learner) {
+		learners.erase(std::remove(learners.begin(), learners.end(), p_learner->get_instance_id()), learners.end());
+	}
+}
+
 void MidiInput::set_latency_ms(double p_ms) {
 	latency_ms = p_ms > 0 ? p_ms : 0.0;
 }
@@ -295,6 +309,13 @@ void MidiInput::deliver() {
 			case 0xE0: kind = Kind::PITCH_BEND, index = 0, value = int64_t(d1 | (d2 << 7)) - 8192; break;
 		}
 		emit_signal("received", int(kind), channel, index, value, m.time_us);
+		if (kind == Kind::CONTROL) {
+			for (const uint64_t id : learners) {
+				if (Object *l = ObjectDB::get_instance(ObjectID(id))) {
+					l->call("midi_controller", channel, index, int(value));
+				}
+			}
+		}
 		if (!driver) {
 			continue;
 		}
@@ -345,6 +366,8 @@ void MidiInput::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_latency_ms", "ms"), &MidiInput::set_latency_ms);
 	ClassDB::bind_method(D_METHOD("get_latency_ms"), &MidiInput::get_latency_ms);
 	ClassDB::bind_method(D_METHOD("inject_bytes", "bytes"), &MidiInput::inject_bytes);
+	ClassDB::bind_method(D_METHOD("add_learner", "learner"), &MidiInput::add_learner);
+	ClassDB::bind_method(D_METHOD("remove_learner", "learner"), &MidiInput::remove_learner);
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "latency_ms", PROPERTY_HINT_RANGE, "0,200,0.5,suffix:ms"), "set_latency_ms", "get_latency_ms");
 	ADD_SIGNAL(MethodInfo("received", PropertyInfo(Variant::INT, "kind"), PropertyInfo(Variant::INT, "channel"), PropertyInfo(Variant::INT, "index"), PropertyInfo(Variant::INT, "value"), PropertyInfo(Variant::INT, "time_us")));
 	ADD_SIGNAL(MethodInfo("raw_received", PropertyInfo(Variant::PACKED_BYTE_ARRAY, "bytes"), PropertyInfo(Variant::INT, "time_us")));

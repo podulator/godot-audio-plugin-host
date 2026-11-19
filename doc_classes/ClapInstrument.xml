@@ -28,6 +28,18 @@
 				Output [code]i[/code] to the [code]i[/code]-th player of [param players] (an [AudioStreamPlayer], [AudioStreamPlayer2D] or [AudioStreamPlayer3D] each), and starts each: [code]drums.bind_outputs([$Main, $Kick, $Snare])[/code].
 			</description>
 		</method>
+		<method name="cancel_learn">
+			<return type="void" />
+			<description>
+				Stops waiting for a controller to learn.
+			</description>
+		</method>
+		<method name="clear_midi_map">
+			<return type="void" />
+			<description>
+				Removes every controller mapping.
+			</description>
+		</method>
 		<method name="close_editor">
 			<return type="void" />
 			<description>
@@ -114,6 +126,12 @@
 				[code]true[/code] while the plugin's window is open.
 			</description>
 		</method>
+		<method name="is_learning" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Whether [method learn_parameter] is waiting for a controller.
+			</description>
+		</method>
 		<method name="is_plugin_loaded">
 			<return type="bool" />
 			<description>
@@ -126,11 +144,40 @@
 				[code]true[/code] while the plugin sleeps: it said it has nothing to do (no notes sounding, say), so it is not called, and costs no CPU, until something arrives for it (a note, a parameter change, the transport) or it asks to run.
 			</description>
 		</method>
+		<method name="learn_parameter">
+			<return type="void" />
+			<param index="0" name="id" type="int" />
+			<description>
+				MIDI learn: the next controller that moves (through [method midi_controller], which a [MidiInput] calls for its learners: [method MidiInput.add_learner]) is mapped to parameter [param id], replacing any mapping of that controller or that parameter. [signal midi_learned] then fires.
+				[codeblock]
+				input.add_learner(synth)
+				synth.learn_parameter(synth.find_parameter("Cutoff"))   # now turn a knob
+				[/codeblock]
+			</description>
+		</method>
 		<method name="load_preset">
 			<return type="bool" />
 			<param index="0" name="id" type="String" />
 			<description>
 				Loads a preset from [method get_presets] by its [code]id[/code], into every instance of the plugin, so they all sound it at once. It then is the plugin's state: [member plugin_state] saves it with the scene, and values set by hand give way to it, as when a state is loaded. Returns [code]false[/code], with the reason printed, if the plugin refuses it.
+			</description>
+		</method>
+		<method name="map_controller">
+			<return type="void" />
+			<param index="0" name="channel" type="int" />
+			<param index="1" name="controller" type="int" />
+			<param index="2" name="id" type="int" />
+			<description>
+				Maps controller [param controller] (0-127) on [param channel] (1-16) to parameter [param id], as learning would: its value 0-127 moves the parameter over its whole range, as a short ramp, so a knob glides rather than steps.
+			</description>
+		</method>
+		<method name="midi_controller">
+			<return type="void" />
+			<param index="0" name="channel" type="int" />
+			<param index="1" name="controller" type="int" />
+			<param index="2" name="value" type="int" />
+			<description>
+				A controller moved, in MIDI 1.0 values: learned if [method learn_parameter] is waiting, then it moves the parameter it is mapped to. A [MidiInput] calls this for its learners; scripts can too.
 			</description>
 		</method>
 		<method name="midi_event">
@@ -229,8 +276,18 @@
 				Glides parameter [param id] to [param value] over [param seconds], starting [param delay] seconds from now, sample-exact (a point every 32 samples, the last exactly [param value]): a filter opening as the player enters a cave, without zipper noise. The stored value, and the inspector, show [param value] at once. A ramp started while another glides on that parameter carries on from where it has got to; [method set_parameter] ends a ramp.
 			</description>
 		</method>
+		<method name="unmap_parameter">
+			<return type="void" />
+			<param index="0" name="id" type="int" />
+			<description>
+				Removes the mapping to parameter [param id].
+			</description>
+		</method>
 	</methods>
 	<members>
+		<member name="midi_map" type="Dictionary" setter="set_midi_map" getter="get_midi_map">
+			The controller mappings (MIDI learn): [code]{"channel:controller": parameter id}[/code]. Saved with the scene, so a rig of knobs comes back with it.
+		</member>
 		<member name="midi_output_latency_ms" type="float" setter="set_midi_output_latency_ms" getter="get_midi_output_latency_ms">
 			For [method set_midi_output_driver]: 0 (the default) plays each forwarded event as soon as it reaches the main thread, up to an audio buffer and a frame late, unevenly. Above 0, each is due its own time plus this, so the spacing the plugin made is kept exactly; it must then be longer than the audio output buffer plus a frame (often 20-50 ms; the headless test driver needs about 150).
 		</member>
@@ -253,6 +310,14 @@
 		<signal name="editor_closed">
 			<description>
 				Emitted when the plugin's window closes: by the user, by the plugin, or by [method close_editor].
+			</description>
+		</signal>
+		<signal name="midi_learned">
+			<param index="0" name="id" type="int" />
+			<param index="1" name="channel" type="int" />
+			<param index="2" name="controller" type="int" />
+			<description>
+				[method learn_parameter] mapped a controller: [param channel] and [param controller] to parameter [param id].
 			</description>
 		</signal>
 		<signal name="midi_output">

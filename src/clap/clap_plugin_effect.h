@@ -15,6 +15,7 @@
 // These two names are CLAP-specific on purpose: the VST3 extension has its own pair. Two
 // extensions registering the same class name is a hard load failure in Godot.
 
+#include "godot_common/midi_learn.h"
 #include "godot_common/midi_out_tap.h"
 #include "clap_processor.h"
 #include "core/effect_runtime.h"
@@ -100,6 +101,17 @@ public:
 	Object *get_midi_output_driver() const { return midi_out.get_driver(); }
 	void set_midi_output_latency_ms(double p_ms) { midi_out.set_latency_ms(p_ms); }
 	double get_midi_output_latency_ms() const { return midi_out.get_latency_ms(); }
+
+	// MIDI learn (godot_common/midi_learn.h): hardware controllers moving parameters.
+	void learn_parameter(int64_t p_id) { learn.learn(p_id); }
+	void cancel_learn() { learn.cancel_learn(); }
+	bool is_learning() const { return learn.is_learning(); }
+	void map_controller(int p_channel, int p_controller, int64_t p_id);
+	void unmap_parameter(int64_t p_id) { learn.unmap(p_id); }
+	void clear_midi_map() { learn.clear(); }
+	void midi_controller(int p_channel, int p_controller, int p_value);
+	void set_midi_map(const Dictionary &p_map) { learn.from_dictionary(p_map); }
+	Dictionary get_midi_map() const { return learn.to_dictionary(); }
 	bool load_preset(const String &p_id);
 
 	// Tempo for tempo-synced effects (godot_common/effect_tempo.h): a plain bpm, or a MidiDriver's
@@ -155,6 +167,7 @@ private:
 	std::unique_ptr<gaph::ClapProcessor> probe;
 	gaph::HostedEffect hosted;
 	gaph_godot::MidiOutTap midi_out;
+	gaph_godot::MidiLearn learn;
 	gaph_godot::EffectTempo tempo;
 	gaph_godot::EditorWindow editor_window;
 };

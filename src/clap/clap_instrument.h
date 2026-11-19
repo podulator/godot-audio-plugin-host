@@ -26,6 +26,7 @@
 // THE PLUGIN WINDOW works exactly as an effect's (godot_common/editor_window.h): editor only,
 // opened by open_editor() or the inspector's "Open Plugin Window" button (clap_editor_plugin.h).
 
+#include "godot_common/midi_learn.h"
 #include "godot_common/midi_out_tap.h"
 #include "clap_library.h"
 #include "clap_processor.h"
@@ -97,6 +98,17 @@ public:
 	Object *get_midi_output_driver() const { return midi_out.get_driver(); }
 	void set_midi_output_latency_ms(double p_ms) { midi_out.set_latency_ms(p_ms); }
 	double get_midi_output_latency_ms() const { return midi_out.get_latency_ms(); }
+
+	// MIDI learn (godot_common/midi_learn.h): hardware controllers moving parameters.
+	void learn_parameter(int64_t p_id) { learn.learn(p_id); }
+	void cancel_learn() { learn.cancel_learn(); }
+	bool is_learning() const { return learn.is_learning(); }
+	void map_controller(int p_channel, int p_controller, int64_t p_id);
+	void unmap_parameter(int64_t p_id) { learn.unmap(p_id); }
+	void clear_midi_map() { learn.clear(); }
+	void midi_controller(int p_channel, int p_controller, int p_value);
+	void set_midi_map(const Dictionary &p_map) { learn.from_dictionary(p_map); }
+	Dictionary get_midi_map() const { return learn.to_dictionary(); }
 	bool load_preset(const String &p_id);
 	double get_parameter(int64_t p_id);
 	Dictionary get_plugin_info();
@@ -163,6 +175,7 @@ private:
 	// running instances (HostedEffect's registry).
 	mutable gaph::HostedEffect hosted;
 	gaph_godot::MidiOutTap midi_out;
+	gaph_godot::MidiLearn learn;
 	gaph_godot::InstrumentInput input;
 	gaph_godot::SharedVoice voice; // the one plugin instance all playbacks hear
 	PackedStringArray output_names; // from the plugin, when it loads; the main output first

@@ -42,6 +42,7 @@ func _ready() -> void:
 		await _test_ramps_and_modulation(path)
 		await _test_presets(path)
 		await _test_notes_out(path)
+		await _test_midi_learn(path)
 	var vst3_notes := TestUtilScript.own_plugin("gaph_test_vst3_instrument.vst3")
 	var vst3_transport := TestUtilScript.own_plugin("gaph_test_vst3_transport.vst3")
 	if not DirAccess.dir_exists_absolute(vst3_notes) or not DirAccess.dir_exists_absolute(vst3_transport):
@@ -801,3 +802,42 @@ func _test_notes_out(path: String) -> void:
 	_check(starts.size() == 2 and starts[1] - starts[0] == int(rate / 2.0), "forwarded through a driver, they play another instrument exactly a beat apart (%s)" % str(starts))
 	await _unrig(a)
 	await _unrig(b)
+
+
+# MIDI learn, fed by a MidiInput (injected bytes: no hardware needed). learn_parameter(Master),
+# then CC 21 on channel 3 moves: midi_learned(1, 3, 21), and from then on that controller moves
+# Master over its range (64 -> 64/127), heard in a held note; another controller changes nothing;
+# the mapping saves as midi_map and comes back.
+func _test_midi_learn(path: String) -> void:
+	var r := await _rig(path, CLAP_ID, "Inst_Learn")
+	var inst: ClapInstrument = r.inst
+	var input := MidiInput.new()
+	add_child(input)
+	input.add_learner(inst)
+	var learned := []
+	inst.midi_learned.connect(func(id: int, channel: int, controller: int) -> void: learned.append([id, channel, controller]))
+	var midi: MidiDriver = r.midi
+	midi.set_channel_target(1, inst)
+	midi.note_on(1, 60, 127) # held: 0.25 x Master
+	inst.learn_parameter(1)
+	_check(inst.is_learning(), "learn_parameter: waiting for a controller")
+	input.inject_bytes(PackedByteArray([0xB2, 21, 127]))
+	await get_tree().create_timer(0.1).timeout
+	_check(learned == [[1, 3, 21]] and not inst.is_learning(), "CC 21 on channel 3 is learned for Master (%s)" % [learned])
+	input.inject_bytes(PackedByteArray([0xB2, 21, 64]))
+	await get_tree().create_timer(0.3).timeout
+	var a := await _collect(r.cap, 0.1)
+	var want := 0.25 * 64.0 / 127.0
+	_check(is_equal_approx(inst.get_parameter(1), 64.0 / 127.0) and a.size() > 0 and absf(a[a.size() - 1].x - want) < 1e-5, "the mapped controller moves Master over its range: 64 -> %.4f, heard %.5f (want %.5f)" % [inst.get_parameter(1), a[a.size() - 1].x if a.size() > 0 else -1.0, want])
+	input.inject_bytes(PackedByteArray([0xB2, 22, 0])) # not mapped
+	await get_tree().create_timer(0.1).timeout
+	_check(is_equal_approx(inst.get_parameter(1), 64.0 / 127.0), "an unmapped controller changes nothing")
+	_check(inst.midi_map == {"3:21": 1}, "the mapping is saved as midi_map (%s)" % [inst.midi_map])
+	var copy := ClapInstrument.new()
+	copy.plugin_path = path
+	copy.midi_map = inst.midi_map
+	copy.midi_controller(3, 21, 0)
+	_check(copy.get_parameter(1) == 0.0, "a midi_map set on another instrument maps the same controller")
+	midi.panic()
+	input.queue_free()
+	await _unrig(r)
