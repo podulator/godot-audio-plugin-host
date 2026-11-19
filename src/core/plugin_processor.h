@@ -27,6 +27,7 @@ enum ParamFlags : uint32_t {
 	PARAM_READ_ONLY = 1 << 2, // The plugin reports it (a meter, say); the host must not set it.
 	PARAM_HIDDEN = 1 << 3, // Not meant for the user. Kept, but not shown in the inspector.
 	PARAM_BYPASS = 1 << 4,
+	PARAM_MODULATABLE = 1 << 5, // CLAP: takes non-destructive modulation (CLAP_EVENT_PARAM_MOD)
 };
 
 // One parameter, as the plugin describes it. Values are in the plugin's own units: CLAP uses the
@@ -71,11 +72,18 @@ struct ParamEvent {
 	//   TRANSPORT: the driver's transport from due_us on (MidiDriver's midi_transport): playing in
 	//          midi_value (0 or 1), the tempo in `value`, the song position in transport_beat, and
 	//          the loop (loop_end <= loop_start: none). The plugin gets it as CLAP transport.
+	//   RAMP:  not for the plugin. "Glide param_id from ramp_from to `value` over ramp_seconds,
+	//          starting at due_us": EffectRuntime turns it into PARAM points, every RAMP_STEP
+	//          frames, starting from where a ramp in progress has got to.
+	//   MOD:   a modulation offset for param_id: `value` added to its set value, without changing
+	//          it (CLAP_EVENT_PARAM_MOD); 0 ends it.
 	enum Type : uint8_t {
 		PARAM,
 		MIDI,
 		DROP,
 		TRANSPORT,
+		RAMP,
+		MOD,
 	};
 	Type type = PARAM;
 	uint8_t midi_kind = 0;
@@ -86,6 +94,7 @@ struct ParamEvent {
 	uint64_t source = 0; // the sending MidiDriver's instance id
 	double transport_beat = 0.0;
 	double loop_start = 0.0, loop_end = 0.0;
+	double ramp_from = 0.0, ramp_seconds = 0.0; // RAMP only
 };
 
 // One block of audio, as handed to a plugin.

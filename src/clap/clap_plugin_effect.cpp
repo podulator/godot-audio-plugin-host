@@ -355,6 +355,22 @@ void ClapPluginEffect::set_parameter_at(int64_t p_id, double p_value, double p_d
 	hosted.set_param_at(uint32_t(p_id), p_value, int64_t(p_delay * 1e6));
 }
 
+void ClapPluginEffect::set_parameter_ramp(int64_t p_id, double p_value, double p_seconds, double p_delay) {
+	ensure_loaded();
+	ERR_FAIL_COND_MSG(!(p_seconds >= 0), "ClapPluginEffect: a ramp lasts 0 seconds or more.");
+	hosted.set_param_ramp(uint32_t(p_id), p_value, p_seconds, int64_t(p_delay * 1e6));
+}
+
+void ClapPluginEffect::set_parameter_modulation(int64_t p_id, double p_amount, double p_delay) {
+	ensure_loaded();
+	hosted.set_param_mod(uint32_t(p_id), p_amount, int64_t(p_delay * 1e6));
+}
+
+double ClapPluginEffect::get_parameter_modulation(int64_t p_id) {
+	ensure_loaded();
+	return hosted.get_param_mod(uint32_t(p_id));
+}
+
 double ClapPluginEffect::get_parameter(int64_t p_id) {
 	ensure_loaded();
 	return hosted.get_param(uint32_t(p_id));
@@ -490,6 +506,9 @@ void ClapPluginEffect::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_parameter", "id", "value"), &ClapPluginEffect::set_parameter);
 	ClassDB::bind_method(D_METHOD("get_parameter", "id"), &ClapPluginEffect::get_parameter);
 	ClassDB::bind_method(D_METHOD("set_parameter_at", "id", "value", "delay"), &ClapPluginEffect::set_parameter_at);
+	ClassDB::bind_method(D_METHOD("set_parameter_ramp", "id", "value", "seconds", "delay"), &ClapPluginEffect::set_parameter_ramp, DEFVAL(0.0));
+	ClassDB::bind_method(D_METHOD("set_parameter_modulation", "id", "amount", "delay"), &ClapPluginEffect::set_parameter_modulation, DEFVAL(0.0));
+	ClassDB::bind_method(D_METHOD("get_parameter_modulation", "id"), &ClapPluginEffect::get_parameter_modulation);
 	ClassDB::bind_method(D_METHOD("find_parameter", "name"), &ClapPluginEffect::find_parameter);
 	ClassDB::bind_method(D_METHOD("get_parameter_text", "id"), &ClapPluginEffect::get_parameter_text);
 	ClassDB::bind_method(D_METHOD("get_instance_count"), &ClapPluginEffect::get_instance_count);
@@ -500,6 +519,11 @@ void ClapPluginEffect::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_spare_instances", "count"), &ClapPluginEffect::set_spare_instances);
 	ClassDB::bind_method(D_METHOD("get_spare_instances"), &ClapPluginEffect::get_spare_instances);
 	ClassDB::bind_method(D_METHOD("get_frames_processed"), &ClapPluginEffect::get_frames_processed);
+	ClassDB::bind_method(D_METHOD("set_bpm", "bpm"), &ClapPluginEffect::set_bpm);
+	ClassDB::bind_method(D_METHOD("get_bpm"), &ClapPluginEffect::get_bpm);
+	ClassDB::bind_method(D_METHOD("sync_beat", "beat"), &ClapPluginEffect::sync_beat);
+	ClassDB::bind_method(D_METHOD("midi_transport", "time_us", "source", "playing", "bpm", "song_beat", "loop_start", "loop_end"), &ClapPluginEffect::midi_transport);
+	ClassDB::bind_method(D_METHOD("midi_stop", "time_us", "source", "mode"), &ClapPluginEffect::midi_stop);
 	// Static: called on the class, ClapPluginEffect.scan_plugins(), without an object.
 	ClassDB::bind_static_method("ClapPluginEffect", D_METHOD("scan_plugins", "extra_dirs"), &ClapPluginEffect::scan_plugins, DEFVAL(PackedStringArray()));
 
@@ -512,6 +536,8 @@ void ClapPluginEffect::_bind_methods() {
 	// Each costs one plugin instance of memory; with 0, a new bus waits a frame or two, playing
 	// its audio unprocessed meanwhile.
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "spare_instances", PROPERTY_HINT_RANGE, "0,8"), "set_spare_instances", "get_spare_instances");
+	// 0: no tempo of its own. Saved, so a scene's effect comes back in tempo.
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "bpm", PROPERTY_HINT_RANGE, "0,999,0.01,or_greater"), "set_bpm", "get_bpm");
 	// Storage only: saved to disk, but hidden in the inspector. State before values, so values
 	// set by hand after the state was taken still win when the scene loads.
 	ADD_PROPERTY(PropertyInfo(Variant::PACKED_BYTE_ARRAY, "plugin_state", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE), "set_plugin_state", "get_plugin_state");

@@ -97,6 +97,20 @@ public:
 			sink.transport(p_target, p_now_us, info_at(clock.running_at(p_now_us)));
 		}
 	}
+	// A target that hears only the transport (a tempo-synced effect): no notes, the same snapshots
+	// as instruments, told the state at once.
+	void add_transport_target(uint64_t p_target, int64_t p_now_us) {
+		if (p_target == 0 || std::find(transport_only.begin(), transport_only.end(), p_target) != transport_only.end()) {
+			return;
+		}
+		transport_only.push_back(p_target);
+		clock.settle(p_now_us);
+		sink.transport(p_target, p_now_us, info_at(clock.running_at(p_now_us)));
+	}
+	void remove_transport_target(uint64_t p_target) {
+		transport_only.erase(std::remove(transport_only.begin(), transport_only.end(), p_target), transport_only.end());
+	}
+
 	uint64_t get_channel_target(int p_channel) const {
 		return p_channel >= 1 && p_channel <= 16 ? channel_target[p_channel - 1] : 0;
 	}
@@ -492,6 +506,7 @@ private:
 	int64_t next_note_id = 1;
 	std::map<uint64_t, std::array<ChannelState, 16>> heard_state;
 	std::vector<uint64_t> targets_used; // every target ever sent to: a stop goes to all of them
+	std::vector<uint64_t> transport_only; // targets of the transport alone (add_transport_target)
 	bool paused = false;
 	bool chase_notes = false;
 	std::vector<int64_t> chased; // notes the pause ended, to start again on resume (chase_notes)
@@ -515,6 +530,11 @@ private:
 	// Every target this driver feeds: the channels' current ones and any it ever sent to.
 	std::vector<uint64_t> all_targets() const {
 		std::vector<uint64_t> out = targets_used;
+		for (uint64_t t : transport_only) {
+			if (std::find(out.begin(), out.end(), t) == out.end()) {
+				out.push_back(t);
+			}
+		}
 		for (uint64_t t : channel_target) {
 			if (t != 0 && std::find(out.begin(), out.end(), t) == out.end()) {
 				out.push_back(t);
@@ -657,6 +677,11 @@ private:
 		clock.drop_pending();
 		for (uint64_t t : targets_used) {
 			sink.stop(t, p_now_us, p_mode);
+		}
+		for (uint64_t t : transport_only) { // their snapshots ahead (loop jumps, tempo) are withdrawn too
+			if (std::find(targets_used.begin(), targets_used.end(), t) == targets_used.end()) {
+				sink.stop(t, p_now_us, StopMode::WITHDRAW);
+			}
 		}
 		for (const Flight &f : in_flight) {
 			if (p_return && !std::isnan(f.r)) {

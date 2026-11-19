@@ -19,6 +19,7 @@
 #include "vst3_processor.h"
 #include "core/effect_runtime.h"
 #include "core/hosted_effect.h"
+#include "godot_common/effect_tempo.h"
 #include "godot_common/editor_window.h"
 
 #include <godot_cpp/classes/audio_effect.hpp>
@@ -87,6 +88,19 @@ public:
 	void set_parameter(int64_t p_id, double p_value);
 	double get_parameter(int64_t p_id);
 	void set_parameter_at(int64_t p_id, double p_value, double p_delay);
+	void set_parameter_ramp(int64_t p_id, double p_value, double p_seconds, double p_delay);
+	void set_parameter_modulation(int64_t p_id, double p_amount, double p_delay);
+	double get_parameter_modulation(int64_t p_id);
+
+	// Tempo for tempo-synced effects (godot_common/effect_tempo.h): a plain bpm, or a MidiDriver's
+	// transport through the target methods below (midi.add_transport_target(fx)).
+	void set_bpm(double p_bpm) { tempo.set_bpm(hosted, p_bpm); }
+	double get_bpm() const { return tempo.get_bpm(); }
+	void sync_beat(double p_beat) { tempo.sync_beat(hosted, p_beat); }
+	void midi_transport(int64_t p_time_us, int64_t p_source, bool p_playing, double p_bpm, double p_song_beat, double p_loop_start, double p_loop_end) {
+		tempo.transport(hosted, p_time_us, p_source, p_playing, p_bpm, p_song_beat, p_loop_start, p_loop_end);
+	}
+	void midi_stop(int64_t p_time_us, int64_t p_source, int) { tempo.stop(hosted, p_time_us, p_source); }
 	int64_t find_parameter(const String &p_name);
 	String get_parameter_text(int64_t p_id);
 	int get_instance_count();
@@ -130,6 +144,7 @@ private:
 	// Kept so the editor can show "Size: 24.0 m" text without a bus running.
 	std::unique_ptr<gaph::Vst3Processor> probe;
 	gaph::HostedEffect hosted;
+	gaph_godot::EffectTempo tempo;
 	gaph_godot::EditorWindow editor_window;
 };
 

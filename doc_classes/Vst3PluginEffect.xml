@@ -69,6 +69,13 @@
 				Returns the current value of a parameter, normalized from [code]0.0[/code] to [code]1.0[/code].
 			</description>
 		</method>
+		<method name="get_parameter_modulation">
+			<return type="float" />
+			<param index="0" name="id" type="int" />
+			<description>
+				The modulation offset [method set_parameter_modulation] set on parameter [param id], or 0.
+			</description>
+		</method>
 		<method name="get_parameter_text">
 			<return type="String" />
 			<param index="0" name="id" type="int" />
@@ -98,6 +105,28 @@
 			<return type="bool" />
 			<description>
 				Returns [code]true[/code] if the plugin at [member plugin_path] was found and loaded. If not, [method get_load_error] says why.
+			</description>
+		</method>
+		<method name="midi_stop">
+			<return type="void" />
+			<param index="0" name="time_us" type="int" />
+			<param index="1" name="source" type="int" />
+			<param index="2" name="mode" type="int" />
+			<description>
+				A [MidiDriver] target method: withdraws transport changes from [param source] planned from [param time_us] on (a loop changed, say).
+			</description>
+		</method>
+		<method name="midi_transport">
+			<return type="void" />
+			<param index="0" name="time_us" type="int" />
+			<param index="1" name="source" type="int" />
+			<param index="2" name="playing" type="bool" />
+			<param index="3" name="bpm" type="float" />
+			<param index="4" name="song_beat" type="float" />
+			<param index="5" name="loop_start" type="float" />
+			<param index="6" name="loop_end" type="float" />
+			<description>
+				A [MidiDriver] target method: the driver's transport, as instruments get it (see [method MidiDriver.add_transport_target]). The plugin hears it as its transport, exact to the sample.
 			</description>
 		</method>
 		<method name="open_editor">
@@ -133,8 +162,37 @@
 				Like [method set_parameter], but heard [param delay] seconds later, placed to the exact sample. The stored value, and so the inspector, changes at once.
 			</description>
 		</method>
+		<method name="set_parameter_modulation">
+			<return type="void" />
+			<param index="0" name="id" type="int" />
+			<param index="1" name="amount" type="float" />
+			<param index="2" name="delay" type="float" default="0.0" />
+			<description>
+				Moves parameter [param id] by [param amount] (in the parameter's own units, as [method get_parameters] gives them) on top of its set value, which stays as it is: the saved setting is untouched, the modulation lives only while the game runs. 0 ends it. CLAP parameters the plugin marks modulatable take it natively (CLAP_EVENT_PARAM_MOD, the plugin's own value and window unchanged); for any other, all of VST3 included, the host sends the value plus the offset, clamped to the range. Heard [param delay] seconds from now, sample-exact.
+			</description>
+		</method>
+		<method name="set_parameter_ramp">
+			<return type="void" />
+			<param index="0" name="id" type="int" />
+			<param index="1" name="value" type="float" />
+			<param index="2" name="seconds" type="float" />
+			<param index="3" name="delay" type="float" default="0.0" />
+			<description>
+				Glides parameter [param id] to [param value] over [param seconds], starting [param delay] seconds from now, sample-exact (a point every 32 samples, the last exactly [param value]): a filter opening as the player enters a cave, without zipper noise. The stored value, and the inspector, show [param value] at once. A ramp started while another glides on that parameter carries on from where it has got to; [method set_parameter] ends a ramp.
+			</description>
+		</method>
+		<method name="sync_beat">
+			<return type="void" />
+			<param index="0" name="beat" type="float" />
+			<description>
+				Puts the song position the plugin hears at [param beat] now (a downbeat, say), running on at [member bpm]: lines a beat-locked effect (a gate, a beat repeat) up with the music. Needs [member bpm] set.
+			</description>
+		</method>
 	</methods>
 	<members>
+		<member name="bpm" type="float" setter="set_bpm" getter="get_bpm">
+			The tempo the plugin hears, for tempo-synced delays, LFOs, gates and arpeggiators: 0 (the default) gives it no tempo, as before. Set by anything (a game, GDSiON, gameplay), no driver needed; the song position runs on from the last [method sync_beat]. To follow a [MidiDriver] exactly instead (play, pause, loops, tempo maps), use [method MidiDriver.add_transport_target]. Saved with the scene.
+		</member>
 		<member name="param_values" type="Dictionary" setter="set_param_values" getter="get_param_values">
 			The parameters set by hand, as [code]{id: value}[/code]. Saved with the scene and applied after [member plugin_state] when it loads, so they win if the two disagree. Parameters not listed keep whatever the plugin holds: its default, or what a loaded state set.
 			Not shown in the inspector, which shows one slider per parameter under [b]Parameters[/b] instead.

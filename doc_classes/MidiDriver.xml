@@ -31,6 +31,16 @@
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="add_transport_target">
+			<return type="void" />
+			<param index="0" name="target" type="Object" />
+			<description>
+				Feeds [param target] this driver's transport alone, no notes: a tempo-synced effect ([ClapPluginEffect], [Vst3PluginEffect]) then follows the driver's tempo, position, loops and tempo maps exactly, as instruments do. Any object with [code]midi_transport()[/code] can be one; with [code]midi_stop()[/code] too, transport changes planned ahead can be withdrawn.
+				[codeblock]
+				midi.add_transport_target(AudioServer.get_bus_effect(1, 0))
+				[/codeblock]
+			</description>
+		</method>
 		<method name="after" qualifiers="const">
 			<return type="float" />
 			<param index="0" name="beats" type="float" />
@@ -224,6 +234,13 @@
 			<param index="2" name="at" type="float" default="-1.0" />
 			<description>
 				Selects program (sound) [param program], 0-127.
+			</description>
+		</method>
+		<method name="remove_transport_target">
+			<return type="void" />
+			<param index="0" name="target" type="Object" />
+			<description>
+				Stops feeding [param target] the transport.
 			</description>
 		</method>
 		<method name="seek">

@@ -41,6 +41,8 @@ public:
 	static constexpr uint32_t MAX_BLOCK = 512;
 	static constexpr uint32_t MAX_EVENTS_PER_BLOCK = 256;
 	static constexpr uint32_t MAX_PENDING_EVENTS = 1024; // Scheduled for later blocks.
+	static constexpr uint32_t MAX_RAMPS = 64; // parameter ramps gliding at once
+	static constexpr uint32_t RAMP_STEP = 32; // frames between a ramp's points (0.7 ms at 44.1 kHz)
 	static constexpr uint32_t MAX_EXTRA_OUTPUTS = 16; // an instrument's outputs beyond the main one
 
 	// Allocates every buffer up front. After construction, process() never allocates.
@@ -75,6 +77,9 @@ public:
 	// MAIN THREAD. A change due at p_due_us (host_time_us(); 0 = as soon as possible).
 	// Returns false if the queue is full and the change was dropped.
 	bool queue_param(uint32_t p_param_id, double p_value, int64_t p_due_us = 0);
+	// MAIN THREAD. A ramp (ParamEvent::RAMP) or a modulation offset (ParamEvent::MOD).
+	bool queue_ramp(uint32_t p_param_id, double p_from, double p_to, double p_seconds, int64_t p_due_us);
+	bool queue_mod(uint32_t p_param_id, double p_amount, int64_t p_due_us);
 
 	// MAIN THREAD, for instruments. A MIDI message (its fields as ParamEvent describes, due_us its
 	// time), and "drop every MIDI event from p_source due from p_from_us on" (MidiDriver's
@@ -102,6 +107,24 @@ public:
 
 private:
 	void gather_events(uint32_t p_frames);
+
+	// RAMPS (AUDIO thread). A RAMP event starts one here when its frame comes; every block, each
+	// running ramp becomes PARAM events at its points in the block, the last one exactly its
+	// target. A new ramp on a parameter starts from where its running one has got to; a plain
+	// PARAM event for it ends the running one.
+	struct Ramp {
+		uint32_t param_id = 0;
+		double from = 0, to = 0;
+		int64_t start = 0, length = 0; // stream frames
+		bool active = false;
+		double at(int64_t p_frame) const {
+			return length <= 0 || p_frame >= start + length ? to : from + (to - from) * double(p_frame - start) / double(length);
+		}
+	};
+	Ramp ramps[MAX_RAMPS];
+	void start_ramp(const ParamEvent &p_event, int64_t p_frame);
+	void ramp_points(uint32_t p_frames, int64_t p_block_start);
+	void insert_event(const ParamEvent &p_event);
 	void apply_drop(const ParamEvent &p_drop);
 	void process_chunk(const float *p_src, float *p_dst, uint32_t p_frames, uint32_t p_offset);
 	float *const *extra_dst = nullptr; // this call's extra outputs (process_with_outputs), else nullptr

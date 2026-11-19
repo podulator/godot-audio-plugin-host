@@ -37,6 +37,8 @@ func _ready() -> void:
 		await _test_transport(path)
 		await _test_clip_audio(path)
 		await _test_note_expressions(path)
+		await _test_effect_tempo()
+		await _test_ramps_and_modulation(path)
 	var vst3_notes := TestUtilScript.own_plugin("gaph_test_vst3_instrument.vst3")
 	var vst3_transport := TestUtilScript.own_plugin("gaph_test_vst3_transport.vst3")
 	if not DirAccess.dir_exists_absolute(vst3_notes) or not DirAccess.dir_exists_absolute(vst3_transport):
@@ -552,3 +554,106 @@ func _test_note_expressions(path: String) -> void:
 	_check(s2.size() >= 4 and s2.slice(2).all(func(st): return st[1] == 0.0 or absf(st[1] - chord_level) < 1e-4),
 			"MIDI-only plugin: on a chord the expression is dropped, the level stays (%s)" % str(s2.slice(2)))
 	await _unrig(m)
+
+
+# Tempo for effects, heard by the test tempo effect (left: song beat x 0.001, right: bpm x 0.001).
+# The float: bpm 140, and the position moving at that speed; sync_beat(8) puts it at beat 8. A
+# driver: add_transport_target, a one-beat loop at 120 bpm, folding back exactly a beat apart.
+func _test_effect_tempo() -> void:
+	var path := TestUtilScript.own_plugin("gaph_test.clap")
+	var fx := ClapPluginEffect.new()
+	fx.plugin_path = path
+	fx.plugin_id = "org.godot-audio-plugin-host.test-tempo"
+	_check(fx.is_plugin_loaded(), "the test tempo effect loads (%s)" % fx.get_load_error())
+	var bus := AudioServer.bus_count
+	AudioServer.add_bus(bus)
+	AudioServer.set_bus_name(bus, "Fx_Tempo")
+	AudioServer.add_bus_effect(bus, fx)
+	var cap := AudioEffectCapture.new()
+	cap.buffer_length = 4.0
+	AudioServer.add_bus_effect(bus, cap)
+	var player := AudioStreamPlayer.new() # something on the bus, so Godot runs its effects
+	var gen := AudioStreamGenerator.new()
+	player.stream = gen
+	player.bus = "Fx_Tempo"
+	add_child(player)
+	player.play()
+	await get_tree().create_timer(0.3).timeout
+	fx.bpm = 140.0
+	await get_tree().create_timer(0.2).timeout
+	var a := await _collect(cap, 0.6)
+	var n := a.size()
+	var slope := (a[n - 1].x - a[n - 1 - 22050].x) / 22050.0 * rate * 1000.0 * 60.0 # bpm, from the position
+	_check(n > 22050 and is_equal_approx(a[n - 1].y, 0.140) and absf(slope - 140.0) < 0.01, "bpm = 140: the plugin hears 140 (%.4f), its position moving at %.3f bpm" % [a[n - 1].y * 1000.0, slope])
+	fx.sync_beat(8.0)
+	var b := await _collect(cap, 0.3)
+	_check(b.size() > 0 and b[b.size() - 1].x > 0.008 and b[b.size() - 1].x < 0.0095, "sync_beat(8): the position goes on from beat 8 (%.5f)" % (b[b.size() - 1].x * 1000.0 if b.size() > 0 else -1.0))
+	var midi := MidiDriver.create(1)
+	add_child(midi)
+	midi.bpm = 120
+	midi.add_transport_target(fx)
+	midi.set_loop(0.0, 1.0)
+	midi.play()
+	await get_tree().create_timer(0.2).timeout
+	var c := await _collect(cap, 1.6)
+	var drops := []
+	for i in range(1, c.size()):
+		if c[i].x < c[i - 1].x - 0.0005:
+			drops.append(i)
+	_check(drops.size() >= 2 and drops[1] - drops[0] == int(rate / 2.0) and is_equal_approx(c[drops[0]].y, 0.120), "a driver's one-beat loop folds the effect's position back exactly a beat apart (%s, want %d)" % [str(drops), int(rate / 2.0)])
+	midi.queue_free()
+	player.stop()
+	await get_tree().create_timer(0.1).timeout
+	player.queue_free()
+	await get_tree().process_frame
+	AudioServer.remove_bus(AudioServer.get_bus_index("Fx_Tempo"))
+
+
+# Ramps and modulation, through the test effects on an instrument's bus (a held note: a steady
+# 0.25 into the effect, so the output is 0.25 x its gain). CLAP: a ramp of Gain 1 -> 0 over half a
+# second falls steadily, a point every 32 samples, and reaches exactly 0 after rate / 2 samples,
+# with the stored value the target at once; modulation +0.5 (native, CLAP_EVENT_PARAM_MOD) gives
+# 0.375 while the stored Gain stays 1. VST3 (emulated: value + offset sent, stored value kept): the
+# same 0.375.
+func _test_ramps_and_modulation(path: String) -> void:
+	for vst3 in [false, true]:
+		var format := "VST3" if vst3 else "CLAP"
+		var fx_path := TestUtilScript.own_plugin("gaph_test_vst3.vst3" if vst3 else "gaph_test.clap")
+		var fx: AudioEffect = Vst3PluginEffect.new() if vst3 else ClapPluginEffect.new()
+		fx.plugin_path = fx_path
+		var unity := 0.5 if vst3 else 1.0 # Gain 1 in the plugin's own units
+		var r := await _rig(path, CLAP_ID, "Inst_Mod_" + format)
+		AudioServer.add_bus_effect(AudioServer.get_bus_index("Inst_Mod_" + format), fx, 0)
+		var midi: MidiDriver = r.midi
+		midi.set_channel_target(1, r.inst)
+		midi.note_on(1, 60, 127) # held
+		await get_tree().create_timer(0.4).timeout
+		if not vst3:
+			fx.set_parameter_ramp(1, 0.0, 0.5)
+			_check(fx.get_parameter(1) == 0.0, "CLAP: the stored value is the ramp's target at once")
+			var a := await _collect(r.cap, 0.9)
+			var first := -1
+			var last := -1
+			var steady := true
+			for i in range(1, a.size()):
+				if a[i].x < a[i - 1].x - 1e-7:
+					if first < 0:
+						first = i
+					last = i
+				elif a[i].x > a[i - 1].x + 1e-7:
+					steady = false
+			_check(first >= 0 and steady and a[a.size() - 1].x == 0.0 and absi(last - first - int(rate / 2.0)) <= 32,
+					"CLAP: a ramp 1 -> 0 over 0.5 s falls steadily to exactly 0 in %d samples (want %d, to within 32)" % [last - first, int(rate / 2.0)])
+			fx.set_parameter(1, 1.0)
+			await get_tree().create_timer(0.2).timeout
+		fx.set_parameter_modulation(1, 0.5 * unity)
+		await get_tree().create_timer(0.2).timeout
+		var m := await _collect(r.cap, 0.2)
+		_check(m.size() > 0 and is_equal_approx(m[m.size() - 1].x, 0.375) and is_equal_approx(fx.get_parameter(1), unity) and is_equal_approx(fx.get_parameter_modulation(1), 0.5 * unity),
+				"%s: modulation +0.5 gives 0.375, the stored Gain unchanged (%.4f, %.3f)" % [format, m[m.size() - 1].x if m.size() > 0 else -1.0, fx.get_parameter(1)])
+		fx.set_parameter_modulation(1, 0.0)
+		await get_tree().create_timer(0.2).timeout
+		var back := await _collect(r.cap, 0.1)
+		_check(back.size() > 0 and is_equal_approx(back[back.size() - 1].x, 0.25), "%s: modulation 0 ends it (%.4f)" % [format, back[back.size() - 1].x if back.size() > 0 else -1.0])
+		midi.panic()
+		await _unrig(r)

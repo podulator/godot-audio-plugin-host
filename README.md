@@ -97,6 +97,22 @@ The Add Effect menu lists effects only: instruments play as [audio streams](#ins
 
 Setting `plugin_state` from a script loads a preset: it replaces every value set by hand so far.
 
+## Sound that follows gameplay
+
+Parameters can glide, be modulated without touching their saved value, and effects can follow a tempo:
+
+```gdscript
+fx.set_parameter_ramp(cutoff, 8000.0, 1.5)       # glide there over 1.5 s, sample-exact, no zipper noise
+fx.set_parameter_modulation(cutoff, speed * 40)  # an offset on top of the saved value; 0 ends it
+fx.bpm = 140                                     # tempo-synced delays and LFOs follow it, no driver needed
+fx.sync_beat(0.0)                                # and a beat-locked effect lines up on a downbeat
+midi.add_transport_target(fx)                    # or follow a MidiDriver exactly: play, pause, loops, tempo maps
+```
+
+- **Ramps** (`set_parameter_ramp(id, value, seconds, delay)`) put a point every 32 samples, the last exactly the target; the inspector shows the target at once. A new ramp carries on from where a running one has got to; `set_parameter()` ends one. Effects and instruments alike.
+- **Modulation** (`set_parameter_modulation(id, amount, delay)`) is non-destructive: the scene keeps the set value. CLAP parameters marked modulatable take it natively (`CLAP_EVENT_PARAM_MOD`); for the rest, VST3 included, the host sends value plus offset.
+- **Tempo** reaches an effect's plugin as its transport (CLAP transport, VST3 process context), exact to the sample. `bpm` is saved with the scene; 0 gives no tempo, as before.
+
 ## Sidechains
 
 A plugin with a second input, such as a ducking compressor or a vocoder, can listen to another bus. Put a send on the bus that should drive it, and name the same channel on the effect:

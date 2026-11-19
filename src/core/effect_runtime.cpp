@@ -63,6 +63,97 @@ bool EffectRuntime::queue_param(uint32_t p_param_id, double p_value, int64_t p_d
 	return param_queue.push(ev);
 }
 
+bool EffectRuntime::queue_ramp(uint32_t p_param_id, double p_from, double p_to, double p_seconds, int64_t p_due_us) {
+	ParamEvent ev;
+	ev.type = ParamEvent::RAMP;
+	ev.param_id = p_param_id;
+	ev.ramp_from = p_from;
+	ev.value = p_to;
+	ev.ramp_seconds = p_seconds > 0 ? p_seconds : 0.0;
+	ev.due_us = p_due_us;
+	return param_queue.push(ev);
+}
+
+bool EffectRuntime::queue_mod(uint32_t p_param_id, double p_amount, int64_t p_due_us) {
+	ParamEvent ev;
+	ev.type = ParamEvent::MOD;
+	ev.param_id = p_param_id;
+	ev.value = p_amount;
+	ev.due_us = p_due_us;
+	return param_queue.push(ev);
+}
+
+// AUDIO THREAD. Into this block's sorted list, after events of the same frame (arrival order).
+void EffectRuntime::insert_event(const ParamEvent &p_event) {
+	if (event_count == MAX_EVENTS_PER_BLOCK) {
+		return; // a ramp point, when the block is full: the next one still comes
+	}
+	uint32_t i = event_count++;
+	while (i > 0 && events[i - 1].frame_offset > p_event.frame_offset) {
+		events[i] = events[i - 1];
+		i--;
+	}
+	events[i] = p_event;
+}
+
+// AUDIO THREAD. A RAMP event's frame has come (stream frame p_frame).
+void EffectRuntime::start_ramp(const ParamEvent &p_event, int64_t p_frame) {
+	Ramp *slot = nullptr;
+	double from = p_event.ramp_from;
+	for (Ramp &r : ramps) { // a ramp already gliding on this parameter: carry on from where it is
+		if (r.active && r.param_id == p_event.param_id) {
+			from = r.at(p_frame);
+			slot = &r;
+			break;
+		}
+	}
+	for (Ramp &r : ramps) {
+		if (!slot && !r.active) {
+			slot = &r;
+		}
+	}
+	if (!slot) {
+		slot = &ramps[0]; // all busy (64 at once): the oldest gives way
+	}
+	slot->param_id = p_event.param_id;
+	slot->from = from;
+	slot->to = p_event.value;
+	slot->start = p_frame;
+	slot->length = int64_t(std::llround(p_event.ramp_seconds * clock.get_rate()));
+	slot->active = true;
+}
+
+// AUDIO THREAD. Each running ramp's points in this block: every RAMP_STEP frames from its start,
+// and its end, exactly the target, after which it stops.
+void EffectRuntime::ramp_points(uint32_t p_frames, int64_t p_block_start) {
+	const int64_t block_end = p_block_start + int64_t(p_frames);
+	for (Ramp &r : ramps) {
+		if (!r.active || r.start >= block_end) {
+			continue;
+		}
+		const int64_t end = r.start + r.length;
+		int64_t f = r.start;
+		if (f < p_block_start) { // the first point of this block on the ramp's grid
+			f += ((p_block_start - f + RAMP_STEP - 1) / RAMP_STEP) * RAMP_STEP;
+		}
+		for (; f < block_end && f < end; f += RAMP_STEP) {
+			ParamEvent ev;
+			ev.param_id = r.param_id;
+			ev.value = r.at(f);
+			ev.frame_offset = uint32_t(f - p_block_start);
+			insert_event(ev);
+		}
+		if (end < block_end) {
+			ParamEvent ev;
+			ev.param_id = r.param_id;
+			ev.value = r.to;
+			ev.frame_offset = uint32_t(std::max<int64_t>(end, p_block_start) - p_block_start);
+			insert_event(ev);
+			r.active = false;
+		}
+	}
+}
+
 // MIDI and TRANSPORT events (the caller sets the type; anything else counts as MIDI).
 bool EffectRuntime::queue_midi(const ParamEvent &p_midi) {
 	ParamEvent ev = p_midi;
@@ -174,6 +265,17 @@ void EffectRuntime::gather_events(uint32_t p_frames) {
 			return;
 		}
 		ev.frame_offset = f < 0 ? 0 : (f >= int64_t(p_frames) ? 0 : uint32_t(f));
+		if (ev.type == ParamEvent::RAMP) {
+			start_ramp(ev, block_start + int64_t(ev.frame_offset));
+			return;
+		}
+		if (ev.type == ParamEvent::PARAM) {
+			for (Ramp &r : ramps) {
+				if (r.active && r.param_id == ev.param_id) {
+					r.active = false; // a value set by hand ends a glide
+				}
+			}
+		}
 		// Insertion sort, keeping arrival order among equal offsets. At most a few hundred
 		// events, already nearly in order, so this is quick and allocation-free.
 		uint32_t i = event_count++;
@@ -203,6 +305,7 @@ void EffectRuntime::gather_events(uint32_t p_frames) {
 			place(ev);
 		}
 	}
+	ramp_points(p_frames, block_start);
 }
 
 void EffectRuntime::process_at(const float *p_src, float *p_dst, uint32_t p_frames, int64_t p_now_us) {

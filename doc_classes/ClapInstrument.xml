@@ -76,6 +76,13 @@
 				Parameter [param id]'s current value.
 			</description>
 		</method>
+		<method name="get_parameter_modulation">
+			<return type="float" />
+			<param index="0" name="id" type="int" />
+			<description>
+				The modulation offset [method set_parameter_modulation] set on parameter [param id], or 0.
+			</description>
+		</method>
 		<method name="get_parameters">
 			<return type="Dictionary[]" />
 			<description>
@@ -161,6 +168,34 @@
 			<param index="1" name="value" type="float" />
 			<description>
 				Sets parameter [param id] to [param value], in the plugin's own range.
+			</description>
+		</method>
+		<method name="set_parameter_at">
+			<return type="void" />
+			<param index="0" name="id" type="int" />
+			<param index="1" name="value" type="float" />
+			<param index="2" name="delay" type="float" />
+			<description>
+				Like [method set_parameter], but heard [param delay] seconds later, placed to the exact sample. The stored value, and so the inspector, changes at once.
+			</description>
+		</method>
+		<method name="set_parameter_modulation">
+			<return type="void" />
+			<param index="0" name="id" type="int" />
+			<param index="1" name="amount" type="float" />
+			<param index="2" name="delay" type="float" default="0.0" />
+			<description>
+				Moves parameter [param id] by [param amount] (in the parameter's own units, as [method get_parameters] gives them) on top of its set value, which stays as it is: the saved setting is untouched, the modulation lives only while the game runs. 0 ends it. CLAP parameters the plugin marks modulatable take it natively (CLAP_EVENT_PARAM_MOD, the plugin's own value and window unchanged); for any other, all of VST3 included, the host sends the value plus the offset, clamped to the range. Heard [param delay] seconds from now, sample-exact.
+			</description>
+		</method>
+		<method name="set_parameter_ramp">
+			<return type="void" />
+			<param index="0" name="id" type="int" />
+			<param index="1" name="value" type="float" />
+			<param index="2" name="seconds" type="float" />
+			<param index="3" name="delay" type="float" default="0.0" />
+			<description>
+				Glides parameter [param id] to [param value] over [param seconds], starting [param delay] seconds from now, sample-exact (a point every 32 samples, the last exactly [param value]): a filter opening as the player enters a cave, without zipper noise. The stored value, and the inspector, show [param value] at once. A ramp started while another glides on that parameter carries on from where it has got to; [method set_parameter] ends a ramp.
 			</description>
 		</method>
 	</methods>

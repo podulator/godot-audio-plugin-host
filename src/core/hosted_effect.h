@@ -103,10 +103,23 @@ public:
 	// The same, but heard p_delay_us from now, to the sample (block_clock.h). The stored value,
 	// and so the inspector, changes at once.
 	void set_param_at(uint32_t p_id, double p_value, int64_t p_delay_us);
+	// MAIN THREAD. Glides to p_value over p_seconds, from p_delay_us on, sample-exact (points every
+	// EffectRuntime::RAMP_STEP frames); the stored value is the target at once.
+	void set_param_ramp(uint32_t p_id, double p_value, double p_seconds, int64_t p_delay_us);
+	// MAIN THREAD. A modulation offset (plugin units) on top of the set value, which it leaves as it
+	// is: gameplay moving a filter without touching the saved setting. 0 ends it. CLAP parameters
+	// marked modulatable take it natively (CLAP_EVENT_PARAM_MOD); for others (all of VST3) the host
+	// sends value + offset instead. Not saved.
+	void set_param_mod(uint32_t p_id, double p_amount, int64_t p_delay_us);
+	double get_param_mod(uint32_t p_id) const;
 	// MAIN THREAD, for instruments: a MIDI event to every running instance, and a DROP (see
 	// EffectRuntime::queue_drop). Instances still waiting for their plugin miss them, as they
 	// miss parameter changes: a plugin that is not running yet has no notes to play.
 	void queue_midi(const ParamEvent &p_event);
+	// MAIN THREAD. A transport snapshot (ParamEvent::TRANSPORT): queued like MIDI, and remembered
+	// per source, so a runtime attached later (a bus rebuilt, a player started after the driver was
+	// bound) gets it too, moved on to the moment it attaches.
+	void queue_transport(const ParamEvent &p_event);
 	void queue_drop(uint64_t p_source, int64_t p_from_us);
 	double get_param(uint32_t p_id) const;
 	bool is_param_set(uint32_t p_id) const { return values.count(p_id) != 0; }
@@ -152,6 +165,10 @@ public:
 
 	size_t instance_count() { return registry.size(); }
 	uint64_t frames_processed();
+	// The last transport snapshot of each source (queue_transport).
+	std::map<uint64_t, ParamEvent> transports;
+	void resend_transport(EffectRuntime &p_runtime) const;
+
 	// MAIN THREAD. Whether the running plugin (the first live instance) sleeps right now.
 	bool is_sleeping();
 	// MAIN THREAD. Note expressions the running plugin had to drop since the last call.
@@ -177,6 +194,10 @@ private:
 	// or what a loaded state set), so a saved scene records only what was changed. std::map keeps the keys sorted, which keeps saved files
 	// stable from one save to the next.
 	std::map<uint32_t, double> values;
+	std::map<uint32_t, double> mods; // modulation offsets (set_param_mod), not saved
+	bool native_mod(uint32_t p_id) const;
+	double sent_value(uint32_t p_id, double p_value) const; // what the plugin gets: + an emulated offset, clamped
+	double clamp_to_range(uint32_t p_id, double p_value) const;
 	std::shared_ptr<SidechainChannel> sidechain;
 	uint32_t spare_count = 1;
 	std::vector<std::unique_ptr<PluginProcessor>> spares; // Ready for attach(); same plugin and state.

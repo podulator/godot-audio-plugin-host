@@ -384,6 +384,20 @@ void MidiDriver::set_channel_target(int p_channel, Object *p_target) {
 	seq.set_channel_target(p_channel, p_target ? uint64_t(p_target->get_instance_id()) : 0, get_time_us());
 }
 
+// The transport alone, for a tempo-synced effect (ClapPluginEffect, Vst3PluginEffect) or any
+// object with midi_transport (and midi_stop, so loop jumps sent ahead can be withdrawn).
+void MidiDriver::add_transport_target(Object *p_target) {
+	ERR_FAIL_COND_MSG(!p_target || !p_target->has_method("midi_transport"),
+			"MidiDriver: a transport target needs midi_transport(time_us, source, playing, bpm, song_beat, loop_start, loop_end).");
+	seq.add_transport_target(uint64_t(p_target->get_instance_id()), get_time_us());
+}
+
+void MidiDriver::remove_transport_target(Object *p_target) {
+	if (p_target) {
+		seq.remove_transport_target(uint64_t(p_target->get_instance_id()));
+	}
+}
+
 Object *MidiDriver::get_channel_target(int p_channel) const {
 	if (!check_channel(p_channel)) {
 		return nullptr;
@@ -403,7 +417,8 @@ void MidiDriver::send(uint64_t p_target, int64_t p_time_us, const Event &p_event
 }
 
 void MidiDriver::stop(uint64_t p_target, int64_t p_time_us, gaph::midi::StopMode p_mode) {
-	if (Object *t = ObjectDB::get_instance(ObjectID(p_target))) {
+	Object *t = ObjectDB::get_instance(ObjectID(p_target));
+	if (t && t->has_method("midi_stop")) {
 		t->call("midi_stop", p_time_us, int64_t(get_instance_id()), int(p_mode));
 	}
 }
@@ -471,6 +486,8 @@ void MidiDriver::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_channel_target", "channel", "target"), &MidiDriver::set_channel_target);
 	ClassDB::bind_method(D_METHOD("get_channel_target", "channel"), &MidiDriver::get_channel_target);
+	ClassDB::bind_method(D_METHOD("add_transport_target", "target"), &MidiDriver::add_transport_target);
+	ClassDB::bind_method(D_METHOD("remove_transport_target", "target"), &MidiDriver::remove_transport_target);
 
 	ClassDB::bind_method(D_METHOD("note_on", "channel", "key", "velocity", "length", "at"), &MidiDriver::note_on, DEFVAL(0.0), DEFVAL(NOW));
 	ClassDB::bind_method(D_METHOD("note_off", "channel", "key", "at"), &MidiDriver::note_off, DEFVAL(NOW));

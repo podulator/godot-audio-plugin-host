@@ -356,6 +356,25 @@ bool ClapProcessor::process(const AudioBlock &p_block) {
 			out.transport.header.time = time;
 			continue;
 		}
+		if (src.type == ParamEvent::MOD) {
+			// Non-destructive modulation: an offset on top of the value, in the parameter's own
+			// units; the plugin keeps its value. Only for parameters it marks modulatable
+			// (HostedEffect sends the others as plain values with the offset added).
+			clap_event_param_mod_t &mod = in_event_storage[in_event_count++].mod;
+			mod.header.size = sizeof(clap_event_param_mod_t);
+			mod.header.time = time;
+			mod.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+			mod.header.type = CLAP_EVENT_PARAM_MOD;
+			mod.header.flags = 0;
+			mod.param_id = src.param_id;
+			mod.cookie = nullptr;
+			mod.note_id = -1;
+			mod.port_index = -1;
+			mod.channel = -1;
+			mod.key = -1;
+			mod.amount = src.value;
+			continue;
+		}
 		if (src.type != ParamEvent::PARAM) {
 			continue;
 		}
@@ -657,6 +676,9 @@ std::vector<ParamInfo> ClapProcessor::read_params() const {
 		}
 		if (info.flags & CLAP_PARAM_IS_HIDDEN) {
 			p.flags |= PARAM_HIDDEN;
+		}
+		if (info.flags & CLAP_PARAM_IS_MODULATABLE) {
+			p.flags |= PARAM_MODULATABLE;
 		}
 		if (info.flags & CLAP_PARAM_IS_BYPASS) {
 			p.flags |= PARAM_BYPASS;

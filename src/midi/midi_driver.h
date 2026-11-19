@@ -142,6 +142,8 @@ public:
 	int64_t get_pitch_bend_max() const;
 
 	void set_channel_target(int p_channel, Object *p_target);
+	void add_transport_target(Object *p_target);
+	void remove_transport_target(Object *p_target);
 	Object *get_channel_target(int p_channel) const;
 
 	// Messages. `at`: a running position from next(), after() or at_beat(), or NOW (-1).

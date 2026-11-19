@@ -1,5 +1,7 @@
 #include "hosted_effect.h"
 
+#include <cmath>
+
 namespace gaph {
 
 std::unique_ptr<PluginProcessor> HostedEffect::create(std::string &r_error) {
@@ -45,14 +47,82 @@ void HostedEffect::load_state(const std::vector<uint8_t> &p_data) {
 
 void HostedEffect::queue_all_values(EffectRuntime &p_runtime) {
 	for (const auto &kv : values) { // kv is a std::pair: .first is the id, .second the value.
-		p_runtime.queue_param(kv.first, kv.second);
+		p_runtime.queue_param(kv.first, sent_value(kv.first, kv.second));
 	}
+	for (const auto &kv : mods) {
+		if (native_mod(kv.first)) {
+			p_runtime.queue_mod(kv.first, kv.second, 0);
+		} else if (!values.count(kv.first)) {
+			p_runtime.queue_param(kv.first, sent_value(kv.first, get_param(kv.first)));
+		}
+	}
+}
+
+double HostedEffect::clamp_to_range(uint32_t p_id, double p_value) const {
+	if (const ParamInfo *p = find_param(p_id)) {
+		return p_value < p->min_value ? p->min_value : (p_value > p->max_value ? p->max_value : p_value);
+	}
+	return p_value;
+}
+
+bool HostedEffect::native_mod(uint32_t p_id) const {
+	const ParamInfo *p = find_param(p_id);
+	return p && (p->flags & PARAM_MODULATABLE);
+}
+
+double HostedEffect::sent_value(uint32_t p_id, double p_value) const {
+	auto it = mods.find(p_id);
+	if (it == mods.end() || native_mod(p_id)) {
+		return p_value;
+	}
+	return clamp_to_range(p_id, p_value + it->second);
+}
+
+double HostedEffect::get_param_mod(uint32_t p_id) const {
+	auto it = mods.find(p_id);
+	return it == mods.end() ? 0.0 : it->second;
+}
+
+void HostedEffect::set_param_ramp(uint32_t p_id, double p_value, double p_seconds, int64_t p_delay_us) {
+	const int64_t due = host_time_us() + (p_delay_us > 0 ? p_delay_us : 0);
+	p_value = clamp_to_range(p_id, p_value);
+	const double from = sent_value(p_id, get_param(p_id)); // a ramp in progress overrides this on the audio thread
+	values[p_id] = p_value;
+	if (reference) {
+		reference->on_param_set(p_id, p_value);
+	}
+	const double to = sent_value(p_id, p_value);
+	registry.for_each([&](EffectRuntime &r) {
+		r.queue_ramp(p_id, from, to, p_seconds, due);
+		if (PluginProcessor *p = r.get_processor()) {
+			p->on_param_set(p_id, p_value);
+		}
+	});
+}
+
+void HostedEffect::set_param_mod(uint32_t p_id, double p_amount, int64_t p_delay_us) {
+	const int64_t due = host_time_us() + (p_delay_us > 0 ? p_delay_us : 0);
+	if (p_amount == 0.0) {
+		mods.erase(p_id);
+	} else {
+		mods[p_id] = p_amount;
+	}
+	const bool native = native_mod(p_id);
+	const double plain = sent_value(p_id, get_param(p_id));
+	registry.for_each([&](EffectRuntime &r) {
+		if (native) {
+			r.queue_mod(p_id, p_amount, due);
+		} else {
+			r.queue_param(p_id, plain, due);
+		}
+	});
 }
 
 std::string HostedEffect::set_plugin(Factory p_factory, std::vector<ParamInfo> p_params) {
 	factory = std::move(p_factory);
 	params = std::move(p_params);
 	spares.clear(); // Made for the previous plugin, and never GUI owners. Rebuilt by idle().
+	mods.clear(); // offsets for the previous plugin's parameters
 	waiting.clear(); // Every registered runtime gets a processor below.
 	// Drop values the new plugin has no parameter for. map::erase returns the next element,
 	// which is the safe way to remove items while looping over a map.
@@ -121,6 +191,7 @@ void HostedEffect::give_processor(EffectRuntime &p_runtime, std::unique_ptr<Plug
 void HostedEffect::attach(EffectRuntime &p_runtime) {
 	registry.add(&p_runtime);
 	p_runtime.set_sidechain(sidechain);
+	resend_transport(p_runtime);
 	if (!factory) {
 		return; // Nothing to run yet; set_plugin() will reach this runtime through the registry.
 	}
@@ -225,6 +296,32 @@ void HostedEffect::queue_midi(const ParamEvent &p_event) {
 	registry.for_each([&](EffectRuntime &r) { r.queue_midi(p_event); });
 }
 
+void HostedEffect::queue_transport(const ParamEvent &p_event) {
+	transports[p_event.source] = p_event;
+	queue_midi(p_event);
+}
+
+// The remembered snapshots, as they stand now: a playing transport's position moved on by the
+// time since (folded back into its loop), due at once.
+void HostedEffect::resend_transport(EffectRuntime &p_runtime) const {
+	const int64_t now = host_time_us();
+	for (const auto &entry : transports) {
+		ParamEvent ev = entry.second;
+		if (ev.due_us < now) {
+			if (ev.midi_value != 0 && ev.value > 0) {
+				double beat = ev.transport_beat + double(now - ev.due_us) / 1e6 * ev.value / 60.0;
+				const double length = ev.loop_end - ev.loop_start;
+				if (length > 0 && ev.transport_beat < ev.loop_end && beat >= ev.loop_end) {
+					beat = ev.loop_start + std::fmod(beat - ev.loop_end, length);
+				}
+				ev.transport_beat = beat;
+			}
+			ev.due_us = now;
+		}
+		p_runtime.queue_midi(ev);
+	}
+}
+
 void HostedEffect::queue_drop(uint64_t p_source, int64_t p_from_us) {
 	registry.for_each([&](EffectRuntime &r) { r.queue_drop(p_source, p_from_us); });
 }
@@ -241,8 +338,9 @@ void HostedEffect::set_param_at(uint32_t p_id, double p_value, int64_t p_delay_u
 	if (reference) {
 		reference->on_param_set(p_id, p_value); // Keeps a state saved from it current.
 	}
+	const double sent = sent_value(p_id, p_value);
 	registry.for_each([&](EffectRuntime &r) {
-		r.queue_param(p_id, p_value, due);
+		r.queue_param(p_id, sent, due);
 		if (PluginProcessor *p = r.get_processor()) {
 			p->on_param_set(p_id, p_value);
 		}

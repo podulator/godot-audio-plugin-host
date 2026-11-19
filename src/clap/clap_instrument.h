@@ -83,6 +83,10 @@ public:
 	String get_load_error();
 	TypedArray<Dictionary> get_parameters();
 	void set_parameter(int64_t p_id, double p_value);
+	void set_parameter_at(int64_t p_id, double p_value, double p_delay);
+	void set_parameter_ramp(int64_t p_id, double p_value, double p_seconds, double p_delay);
+	void set_parameter_modulation(int64_t p_id, double p_amount, double p_delay);
+	double get_parameter_modulation(int64_t p_id);
 	double get_parameter(int64_t p_id);
 	Dictionary get_plugin_info();
 

@@ -234,6 +234,28 @@ void ClapInstrument::set_parameter(int64_t p_id, double p_value) {
 	hosted.set_param(uint32_t(p_id), p_value);
 }
 
+void ClapInstrument::set_parameter_at(int64_t p_id, double p_value, double p_delay) {
+	ensure_loaded();
+	hosted.set_param_at(uint32_t(p_id), p_value, int64_t(p_delay * 1e6));
+	notify_property_list_changed();
+}
+
+void ClapInstrument::set_parameter_ramp(int64_t p_id, double p_value, double p_seconds, double p_delay) {
+	ensure_loaded();
+	ERR_FAIL_COND_MSG(!(p_seconds >= 0), "ClapInstrument: a ramp lasts 0 seconds or more.");
+	hosted.set_param_ramp(uint32_t(p_id), p_value, p_seconds, int64_t(p_delay * 1e6));
+}
+
+void ClapInstrument::set_parameter_modulation(int64_t p_id, double p_amount, double p_delay) {
+	ensure_loaded();
+	hosted.set_param_mod(uint32_t(p_id), p_amount, int64_t(p_delay * 1e6));
+}
+
+double ClapInstrument::get_parameter_modulation(int64_t p_id) {
+	ensure_loaded();
+	return hosted.get_param_mod(uint32_t(p_id));
+}
+
 double ClapInstrument::get_parameter(int64_t p_id) {
 	ensure_loaded();
 	return hosted.get_param(uint32_t(p_id));
@@ -401,6 +423,10 @@ void ClapInstrument::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_load_error"), &ClapInstrument::get_load_error);
 	ClassDB::bind_method(D_METHOD("get_parameters"), &ClapInstrument::get_parameters);
 	ClassDB::bind_method(D_METHOD("set_parameter", "id", "value"), &ClapInstrument::set_parameter);
+	ClassDB::bind_method(D_METHOD("set_parameter_at", "id", "value", "delay"), &ClapInstrument::set_parameter_at);
+	ClassDB::bind_method(D_METHOD("set_parameter_ramp", "id", "value", "seconds", "delay"), &ClapInstrument::set_parameter_ramp, DEFVAL(0.0));
+	ClassDB::bind_method(D_METHOD("set_parameter_modulation", "id", "amount", "delay"), &ClapInstrument::set_parameter_modulation, DEFVAL(0.0));
+	ClassDB::bind_method(D_METHOD("get_parameter_modulation", "id"), &ClapInstrument::get_parameter_modulation);
 	ClassDB::bind_method(D_METHOD("get_parameter", "id"), &ClapInstrument::get_parameter);
 	ClassDB::bind_method(D_METHOD("get_plugin_info"), &ClapInstrument::get_plugin_info);
 	ClassDB::bind_method(D_METHOD("get_frames_processed"), &ClapInstrument::get_frames_processed);

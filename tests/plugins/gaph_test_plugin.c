@@ -2,7 +2,8 @@
  * platform, in CI too, where no third-party plugins are installed. Plain C, CLAP headers only.
  *
  *   ports:  stereo main in, stereo main out, stereo sidechain in ("Sidechain")
- *   params: 1 "Gain"           0..2, default 1    out = main * gain + sidechain * mix
+ *   params: 1 "Gain"           0..2, default 1    out = main * (gain + mod) + sidechain * mix
+ *                                                 (Gain is modulatable: CLAP_EVENT_PARAM_MOD sets mod)
  *           2 "Sidechain Mix"  0..1, default 0    so the defaults are an exact null test
  *   events: applied at their own sample (sample-accurate), so timing is testable exactly
  *   state:  the two values, as two little-endian doubles
@@ -43,6 +44,7 @@ typedef struct {
 	clap_plugin_t plugin;
 	const clap_host_t *host;
 	double gain;
+	double gain_mod; /* CLAP_EVENT_PARAM_MOD on Gain: an offset the value itself keeps out of */
 	double mix;
 #ifdef GAPH_TEST_GUI
 	double gui_scale;
@@ -79,7 +81,7 @@ static bool params_get_info(const clap_plugin_t *p, uint32_t index, clap_param_i
 	}
 	memset(info, 0, sizeof(*info));
 	info->id = index == 0 ? PARAM_GAIN : PARAM_MIX;
-	info->flags = CLAP_PARAM_IS_AUTOMATABLE;
+	info->flags = CLAP_PARAM_IS_AUTOMATABLE | (index == 0 ? CLAP_PARAM_IS_MODULATABLE : 0);
 	snprintf(info->name, sizeof(info->name), "%s", index == 0 ? "Gain" : "Sidechain Mix");
 	info->min_value = 0.0;
 	info->max_value = index == 0 ? 2.0 : 1.0;
@@ -123,6 +125,13 @@ static bool params_text_to_value(const clap_plugin_t *p, clap_id id, const char 
 
 /* One parameter event: the core event space's PARAM_VALUE is the only one this plugin reads. */
 static void apply_event(test_plugin_t *t, const clap_event_header_t *h) {
+	if (h->space_id == CLAP_CORE_EVENT_SPACE_ID && h->type == CLAP_EVENT_PARAM_MOD) {
+		const clap_event_param_mod_t *mod = (const clap_event_param_mod_t *)h;
+		if (mod->param_id == PARAM_GAIN) {
+			t->gain_mod = mod->amount;
+		}
+		return;
+	}
 	if (h->space_id != CLAP_CORE_EVENT_SPACE_ID || h->type != CLAP_EVENT_PARAM_VALUE) {
 		return;
 	}
@@ -172,7 +181,7 @@ static clap_process_status plugin_process(const clap_plugin_t *p, const clap_pro
 		for (uint32_t c = 0; c < main_out->channel_count; c++) {
 			const float m = (main_in && c < main_in->channel_count) ? main_in->data32[c][f] : 0.0f;
 			const float s = (side_in && c < side_in->channel_count) ? side_in->data32[c][f] : 0.0f;
-			main_out->data32[c][f] = (float)(m * t->gain + s * t->mix);
+			main_out->data32[c][f] = (float)(m * (t->gain + t->gain_mod) + s * t->mix);
 		}
 	}
 	while (ev < n_events) { /* Events stamped past the block's end still count. */
@@ -467,18 +476,121 @@ static const void *plugin_get_extension(const clap_plugin_t *p, const char *id) 
 
 /* --- factory and entry --------------------------------------------------------------------- */
 
+/* --- GAPH Test Tempo: an effect that plays back the transport it hears ---------------------------
+ * Left output = song position in beats x 0.001, right = tempo x 0.001 while playing (0 while
+ * stopped, or before any transport), at every sample, from proc->transport and transport events
+ * (moved on at the tempo between them). The input is ignored. For testing tempo-synced effects. */
+typedef struct {
+	clap_plugin_t plugin;
+	double rate;
+	bool known, playing;
+	double beat, tempo;
+	int64_t at; /* the sample `beat` was true at, in this block (negative: an earlier block) */
+} tempo_plugin_t;
+
+static const char *const TEMPO_FEATURES[] = { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEATURE_STEREO, NULL };
+static const clap_plugin_descriptor_t tempo_descriptor = {
+	CLAP_VERSION_INIT, "org.godot-audio-plugin-host.test-tempo", "GAPH Test Tempo", "Godot Audio Plugin Host", "", "", "", "1.0.0",
+	"Plays back the transport it hears: song position and tempo as levels", TEMPO_FEATURES,
+};
+
+static tempo_plugin_t *tempo_of(const clap_plugin_t *p) { return (tempo_plugin_t *)p->plugin_data; }
+static bool tempo_init(const clap_plugin_t *p) { (void)p; return true; }
+static void tempo_destroy(const clap_plugin_t *p) { free(tempo_of(p)); }
+static bool tempo_activate(const clap_plugin_t *p, double rate, uint32_t a, uint32_t b) { (void)a, (void)b; tempo_of(p)->rate = rate; return true; }
+static bool tempo_start(const clap_plugin_t *p) { (void)p; return true; }
+static void tempo_noop(const clap_plugin_t *p) { (void)p; }
+
+static void tempo_take(tempo_plugin_t *t, const clap_event_transport_t *e, int64_t at) {
+	t->known = true;
+	t->playing = (e->flags & CLAP_TRANSPORT_IS_PLAYING) != 0;
+	t->beat = (double)e->song_pos_beats / (double)CLAP_BEATTIME_FACTOR;
+	t->tempo = (e->flags & CLAP_TRANSPORT_HAS_TEMPO) ? e->tempo : 120.0;
+	t->at = at;
+}
+
+static clap_process_status tempo_process(const clap_plugin_t *p, const clap_process_t *proc) {
+	tempo_plugin_t *t = tempo_of(p);
+	if (proc->transport) {
+		tempo_take(t, proc->transport, 0);
+	}
+	const uint32_t count = proc->in_events->size(proc->in_events);
+	uint32_t next = 0;
+	float *left = proc->audio_outputs[0].data32[0], *right = proc->audio_outputs[0].data32[1];
+	for (uint32_t f = 0; f < proc->frames_count; f++) {
+		while (next < count) {
+			const clap_event_header_t *h = proc->in_events->get(proc->in_events, next);
+			if (h->time > f) {
+				break;
+			}
+			if (h->space_id == CLAP_CORE_EVENT_SPACE_ID && h->type == CLAP_EVENT_TRANSPORT) {
+				tempo_take(t, (const clap_event_transport_t *)h, (int64_t)h->time);
+			}
+			next++;
+		}
+		const double beat = t->playing ? t->beat + (double)((int64_t)f - t->at) / t->rate * t->tempo / 60.0 : t->beat;
+		left[f] = t->known ? (float)(beat * 0.001) : 0.0f;
+		right[f] = t->known && t->playing ? (float)(t->tempo * 0.001) : 0.0f;
+	}
+	t->at -= (int64_t)proc->frames_count;
+	return CLAP_PROCESS_CONTINUE;
+}
+
+static uint32_t tempo_ports_count(const clap_plugin_t *p, bool is_input) { (void)p, (void)is_input; return 1; }
+static bool tempo_ports_get(const clap_plugin_t *p, uint32_t index, bool is_input, clap_audio_port_info_t *info) {
+	(void)p;
+	if (index != 0) {
+		return false;
+	}
+	memset(info, 0, sizeof(*info));
+	info->id = is_input ? 0 : 1;
+	strcpy(info->name, is_input ? "In" : "Out");
+	info->flags = CLAP_AUDIO_PORT_IS_MAIN;
+	info->channel_count = 2;
+	info->port_type = CLAP_PORT_STEREO;
+	info->in_place_pair = CLAP_INVALID_ID;
+	return true;
+}
+static const clap_plugin_audio_ports_t tempo_ports = { tempo_ports_count, tempo_ports_get };
+static const void *tempo_extension(const clap_plugin_t *p, const char *id) {
+	(void)p;
+	return strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0 ? &tempo_ports : NULL;
+}
+
+static const clap_plugin_t *tempo_create(const clap_host_t *host) {
+	(void)host;
+	tempo_plugin_t *t = (tempo_plugin_t *)calloc(1, sizeof(tempo_plugin_t));
+	t->rate = 44100.0;
+	t->plugin.desc = &tempo_descriptor;
+	t->plugin.plugin_data = t;
+	t->plugin.init = tempo_init;
+	t->plugin.destroy = tempo_destroy;
+	t->plugin.activate = tempo_activate;
+	t->plugin.deactivate = tempo_noop;
+	t->plugin.start_processing = tempo_start;
+	t->plugin.stop_processing = tempo_noop;
+	t->plugin.reset = tempo_noop;
+	t->plugin.process = tempo_process;
+	t->plugin.get_extension = tempo_extension;
+	t->plugin.on_main_thread = tempo_noop;
+	return &t->plugin;
+}
+
 static uint32_t factory_count(const clap_plugin_factory_t *f) {
 	(void)f;
-	return 1;
+	return 2;
 }
 
 static const clap_plugin_descriptor_t *factory_descriptor(const clap_plugin_factory_t *f, uint32_t index) {
 	(void)f;
-	return index == 0 ? &descriptor : NULL;
+	return index == 0 ? &descriptor : (index == 1 ? &tempo_descriptor : NULL);
 }
 
 static const clap_plugin_t *factory_create(const clap_plugin_factory_t *f, const clap_host_t *host, const char *id) {
 	(void)f;
+	if (strcmp(id, tempo_descriptor.id) == 0) {
+		return tempo_create(host);
+	}
 	if (strcmp(id, descriptor.id) != 0) {
 		return NULL;
 	}

@@ -211,6 +211,7 @@ private:
 		clap_event_midi2_t midi2;
 		clap_event_transport_t transport;
 		clap_event_note_expression_t expression;
+		clap_event_param_mod_t mod;
 	};
 	std::vector<InEvent> in_event_storage;
 	// The plugin's note input (CLAP_EXT_NOTE_PORTS): which ways of sending notes it takes

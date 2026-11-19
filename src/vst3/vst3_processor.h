@@ -70,7 +70,7 @@ public:
 	~Vst3Processor() override;
 
 	bool process(const AudioBlock &p_block) override;
-	bool wants_transport_splits() const override { return instrument; }
+	bool wants_transport_splits() const override { return true; } // only at TRANSPORT events: none for an effect without a tempo
 	std::vector<std::string> output_names() const override;
 	void detach_from_audio() override {} // setProcessing(false) is allowed on the main thread.
 	bool pop_output_param(ParamEvent &r_event) override;

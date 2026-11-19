@@ -83,7 +83,7 @@ public:
 		ev.loop_end = p_loop_end;
 		ev.source = uint64_t(p_source);
 		ev.due_us = p_time_us;
-		p_hosted.queue_midi(ev);
+		p_hosted.queue_transport(ev);
 	}
 
 	// MAIN THREAD, every frame: forgets notes that ended a while ago, so the book stays small.
